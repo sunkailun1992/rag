@@ -12,7 +12,7 @@ plugins {
  * 项目基础信息
  */
 group = 'com'
-version = '1.0.0'
+version = '1.0.1'
 description = 'rag'
 
 /**
@@ -47,7 +47,7 @@ ext {
     // 公共 utils 包版本，必须与本地或远程 Maven 制品保持一致。
     utilsVersion = '1.4.1'
     // 公共 RPC 契约包版本，必须与 provider/consumer 使用的契约保持一致。
-    rpcApiVersion = '1.0.1'
+    rpcApiVersion = '1.0.2'
 }
 
 /**

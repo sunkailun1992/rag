@@ -8,7 +8,7 @@
 
 ## 当前服务角色
 
-- `rag` 是RAG 知识检索服务 consumer，可以用 `@DubboReference` 调用 `rpc-api` 中的契约。
+- `rag` 是 RAG 知识检索服务 provider，使用 `@DubboService` 发布 `rpc-api` 中的 RAG 检索契约；后续如需调用其它服务，也可以作为 consumer 使用 `@DubboReference`。
 - consumer 不依赖 provider 服务源码，不复制 provider 内部实体。
 - 本地验证接口必须标明测试用途，避免误认为正式业务 API。
 

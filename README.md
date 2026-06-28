@@ -2,7 +2,7 @@
 
 `rag` 是 RAG 知识检索服务后端微服务。
 
-当前项目从现有 Java 微服务工程骨架（`report`）复制迁移而来，只保留基础工程、统一异常处理、DDL 入口、CI、脚本和 AI 编码规范；**不包含任何 report 业务代码**，也不包含 `user` 服务的用户、租户、角色、权限资源等业务类。RAG 业务（检索、摄取、向量库、MCP 工具、AI Registry 注册）属 Phase 2，尚未实现。
+当前项目从现有 Java 微服务工程骨架（`report`）复制迁移而来，只保留基础工程、统一异常处理、DDL 入口、CI、脚本和 AI 编码规范；**不包含任何 report 业务代码**，也不包含 `user` 服务的用户、租户、角色、权限资源等业务类。当前已先发布 RAG 检索的 Dubbo RPC / HTTP 边界，真实 embedding、Qdrant 检索、摄取、MCP 工具和 AI Registry 注册仍属 Phase 2，尚未实现。
 
 ## 技术基线
 
@@ -19,11 +19,11 @@
 
 ## 服务职责
 
-`rag` 定位为 fleet / AI 中台的「知识检索」能力提供方，以 **MCP 工具 + Nacos AI Registry** 形式被智能体（如 `ai-agent`）发现并调用。后续围绕以下边界展开：
+`rag` 定位为 fleet / AI 中台的「知识检索」能力提供方。当前 `ai` 可先通过 Dubbo RPC 调用 `rag` 获取检索上下文；后续如需被智能体动态发现，再以 **MCP 工具 + Nacos AI Registry** 形式暴露给 `ai-agent` 等调用方。后续围绕以下边界展开：
 
 - **检索**：输入查询 → embedding → Qdrant 向量检索 → 返回带出处的上下文片段（不替调用方叫模型、不下结论）。
 - **摄取**：文档解析 / 切片 / embedding / 写入 Qdrant；离线/批量，未来可能外移（如 Python）。摄取侧与查询侧必须同 embedding 模型、同维度。
-- **能力暴露**：`knowledge_search` 等 MCP 工具 + Nacos AI Registry AgentCard 注册，供 fleet 内任意 agent 复用。
+- **能力暴露**：当前先提供 `RagRetrievalRpcService` 和 `/api/rag/retrievals` HTTP 边界；后续再补 `knowledge_search` 等 MCP 工具 + Nacos AI Registry AgentCard 注册，供 fleet 内任意 agent 复用。
 - **知识库管理**：知识文档登记、版本、来源、collection 与权限范围（敏感数据归属留调用方控制面）。
 
 公共工具、认证上下文、多租户、统一返回、统一异常、数据权限、MyBatis-Plus 公共配置等能力不在本服务重复实现，统一复用同级 `utils` 项目。

@@ -1,6 +1,6 @@
 # rag 服务本地启动端口。
 server:
-  port: 7320
+  port: 7200
 
 # 连接 Nacos 前必须先有的启动入口配置。
 # 这里不能引用 reuse-configuration.yaml，因为远程配置还没有加载。
