@@ -1,0 +1,59 @@
+# test 环境负责声明 Nacos 入口和远程配置 import；业务配置继续放 Nacos test namespace / DEFAULT_GROUP。
+# 当前 dev/test/prod 暂时共用同一套 Nacos 地址和 namespace，后期可通过 NACOS_TEST_* 单独覆盖。
+custom:
+  nacos-ip: ${NACOS_TEST_SERVER_ADDR:${NACOS_SERVER_ADDR:172.16.1.39:8848}}
+  namespace: ${NACOS_TEST_NAMESPACE:${NACOS_NAMESPACE:cfbf4c42-5ebb-4566-a095-30a568556a85}}
+
+spring:
+  cloud:
+    nacos:
+      # 服务注册与发现配置，供网关、Dubbo、Admin 和运维观察当前实例。
+      discovery:
+        server-addr: ${custom.nacos-ip}
+        namespace: ${custom.namespace}
+        group: ${custom.nacos-group}
+      # 配置中心入口，负责加载本 profile spring.config.import 中列出的远程 YAML。
+      config:
+        server-addr: ${custom.nacos-ip}
+        namespace: ${custom.namespace}
+        group: ${custom.nacos-group}
+        file-extension: yaml
+  config:
+    # import 必须和本 profile 的 Nacos 地址同文件；group 默认使用上面的 custom.nacos-group，只有跨 group 特例才显式写 group。
+    import:
+      # logging.yml：日志级别与输出格式等公共日志配置。
+      - "optional:nacos:logging.yml?refreshEnabled=true"
+      # reuse-configuration.yaml：共享基础变量，例如 Redis/MySQL/中间件地址等复用值。
+      - "optional:nacos:reuse-configuration.yaml?refreshEnabled=true"
+      # traffic-governance.yaml：灰度、版本、流量治理等跨服务公共规则。
+      - "optional:nacos:traffic-governance.yaml?refreshEnabled=true"
+      # security-auth.yaml：认证、鉴权、Token 和安全过滤公共配置。
+      - "optional:nacos:security-auth.yaml?refreshEnabled=true"
+      # swagger.yaml：OpenAPI/Swagger 展示公共开关与分组配置。
+      - "optional:nacos:swagger.yaml?refreshEnabled=true"
+      # rag.yaml：rag 服务业务配置（RAG 检索参数、collection、topK、阈值等私有 @ConfigurationProperties）。
+      - "optional:nacos:rag.yaml?refreshEnabled=true"
+      # rag-spring.yaml：rag 服务 Spring、数据源、Spring AI 模型和服务私有基础配置。
+      - "optional:nacos:rag-spring.yaml?refreshEnabled=true"
+      # qdrant.yaml：Qdrant 向量数据库连接配置，RAG 检索向量库入口。
+      - "optional:nacos:qdrant.yaml?refreshEnabled=true"
+      # mybatis-plus.yaml：MyBatis-Plus 通用行为配置。
+      - "optional:nacos:mybatis-plus.yaml?refreshEnabled=true"
+      # redis.yaml：Redis 连接配置。
+      - "optional:nacos:redis.yaml?refreshEnabled=true"
+      # rabbitmq.yaml：RabbitMQ 连接和消息基础配置。
+      - "optional:nacos:rabbitmq.yaml?refreshEnabled=true"
+      # elasticsearch.yaml：Elasticsearch 连接配置。
+      - "optional:nacos:elasticsearch.yaml?refreshEnabled=true"
+      # seata.yaml：Seata 分布式事务客户端配置。
+      - "optional:nacos:seata.yaml?refreshEnabled=true"
+      # zipkin.yaml：链路追踪采样和上报配置。
+      - "optional:nacos:zipkin.yaml?refreshEnabled=true"
+      # admin.yaml：Spring Boot Admin 注册和监控配置。
+      - "optional:nacos:admin.yaml?refreshEnabled=true"
+      # dubbo.yaml：Dubbo RPC、注册中心和协议配置。
+      - "optional:nacos:dubbo.yaml?refreshEnabled=true"
+      # xxl-job.yaml：XXL-JOB 执行器配置。
+      - "optional:nacos:xxl-job.yaml?refreshEnabled=true"
+      # a2a.yaml：A2A / Nacos AI Registry 共享契约（agent 名、context-path、tenant、provider-org）；rag 作为 AI 能力注册方引用 ${custom.a2a-*}。
+      - "optional:nacos:a2a.yaml?refreshEnabled=true"

@@ -1,0 +1,20 @@
+# rag 服务本地启动端口。
+server:
+  port: 7320
+
+# 连接 Nacos 前必须先有的启动入口配置。
+# 这里不能引用 reuse-configuration.yaml，因为远程配置还没有加载。
+custom:
+  # Nacos 默认分组，大部分公共配置放 DEFAULT_GROUP。
+  nacos-group: ${NACOS_GROUP:DEFAULT_GROUP}
+
+spring:
+  profiles:
+    # 只通过 APP_ENV 或 spring.profiles.active 选择 dev/test/prod；Nacos 地址和 namespace 放在对应 application-*.yml。
+    active: ${APP_ENV:dev}
+  application:
+    # 服务注册名，也是其他微服务通过 lb://rag 访问 rag 服务的名称。
+    name: rag
+  main:
+    # 兼容公共 utils 和业务侧可能重复声明的基础 Bean。
+    allow-bean-definition-overriding: true

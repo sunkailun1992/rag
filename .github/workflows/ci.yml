@@ -1,0 +1,68 @@
+# Report service CI guards the executable part of the AI coding standard.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-security:
+    name: Build, Test, and Security Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Checkout rpc-api dependency
+        uses: actions/checkout@v4
+        with:
+          repository: sunkailun1992/rpc-api
+          ref: main
+          path: .ci-rpc-api
+
+      - name: Checkout utils dependency
+        uses: actions/checkout@v4
+        with:
+          repository: sunkailun1992/utils
+          ref: main
+          path: .ci-utils
+
+      - name: Hide CI dependency checkout from scans
+        run: |
+          echo ".ci-rpc-api/" >> .git/info/exclude
+          echo ".ci-utils/" >> .git/info/exclude
+
+      - name: Publish rpc-api to Maven Local
+        working-directory: .ci-rpc-api
+        run: ./gradlew -q publishToMavenLocal
+
+      - name: Publish utils to Maven Local
+        working-directory: .ci-utils
+        run: ./gradlew -q publishToMavenLocal
+
+      - name: Prepare scripts
+        run: chmod +x gradlew scripts/check-secrets.sh
+
+      - name: Compile
+        run: ./gradlew -q compileJava
+
+      - name: Test
+        run: ./gradlew test
+
+      - name: Secret warning scan
+        run: bash scripts/check-secrets.sh
