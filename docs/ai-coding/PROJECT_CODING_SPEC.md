@@ -210,30 +210,34 @@ src/main/resources/db/*.sql
 
 ## 公共字段
 
-数据库表默认包含这些公共字段：
+数据库业务表默认包含这些公共治理字段。AI 新增表时先写完整字段清单，再补业务字段、索引、唯一约束和初始化数据：
 
 ```sql
 code varchar(255) DEFAULT NULL COMMENT '编码',
 description varchar(255) DEFAULT NULL COMMENT '说明',
-create_date_time datetime DEFAULT NULL COMMENT '创建时间',
+create_date_time datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 create_name varchar(255) DEFAULT NULL COMMENT '创建人',
-modify_date_time datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+modify_date_time datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
 modify_name varchar(255) DEFAULT NULL COMMENT '修改人',
 is_delete bit(1) DEFAULT b'0' COMMENT '删除状态',
+type int DEFAULT '0' COMMENT '类型（0：默认）',
+state int DEFAULT '1' COMMENT '状态（1：启用，2：禁用）',
 label varchar(255) DEFAULT NULL COMMENT '标签',
 sorting int DEFAULT '0' COMMENT '排序',
 version int DEFAULT '1' COMMENT '版本号',
 tenant_id varchar(64) NOT NULL DEFAULT '1' COMMENT '租户id'
 ```
 
-这些字段由 `utils` 中的 `com.kellen.bean.EntityBase` 承接。实体默认继承：
+这些字段中的 `id`、`code`、`description`、`createDateTime`、`createName`、`modifyDateTime`、`modifyName`、`isDelete`、`label`、`sorting`、`version`、`tenantId` 由 `utils` 中的 `com.kellen.bean.EntityBase` 承接。实体默认继承：
 
 ```java
 public class Xxx extends EntityBase {
 }
 ```
 
-`type` 和 `state` 不放入 `EntityBase`。如果某张表需要 `type/state`，由业务模块自己定义字段和枚举。
+`type` 和 `state` 是 DDL 默认治理/状态字段，但不放入 `EntityBase`。业务代码需要读写 `type/state` 时，由当前实体自行声明字段并配套 `IEnum` 或受控枚举；不需要读写时依赖数据库默认值即可。
+
+数据库列 `version` 只表示 MyBatis-Plus 乐观锁。业务版本、模板版本、协议版本、Prompt 版本必须使用明确列名，例如 `template_version`、`prompt_version`、`protocol_version`，不得复用 `version`。
 
 数据归属字段：
 

@@ -11,8 +11,10 @@ import lombok.Setter;
  * 示例业务对象。
  * <p>
  * AI 新增实体时，应继承 EntityBase，并只声明当前业务表自己的字段。
- * 公共字段 id、code、description、createDateTime、modifyDateTime、isDelete、
- * label、sorting、version、tenantId 已由 EntityBase 统一承接。
+ * 公共字段 id、code、description、createDateTime、createName、modifyDateTime、
+ * modifyName、isDelete、label、sorting、version、tenantId 已由 EntityBase 统一承接。
+ * DDL 默认还包含 type/state；它们不在 EntityBase 中，业务代码需要读写时
+ * 由当前实体自行声明。
  *
  * @author sunkailun
  * @className ExampleEntity

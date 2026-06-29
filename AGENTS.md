@@ -45,6 +45,7 @@
 - 向量库统一用 **Qdrant**；**摄取侧与查询侧必须使用同一 embedding 模型 + 同一维度**，维度必须等于 collection 向量维，变更即需重建 collection 并全量重嵌入。
 - 摄取（解析/切片/embedding/写库）与检索（查询/向量检索/拼接）职责分离；摄取是离线/批量，未来可能外移（如 Python），检索在请求链路上。
 - 敏感数据（如患者画像）归属与合规留在调用方控制面；`rag` 默认只承载可共享的知识，不持有患者主身份。
+- 新增知识库、切片、向量任务或模型配置业务表时，必须按 `docs/ai-coding/PROJECT_CODING_SPEC.md` 补齐公共治理字段；`version` 只做乐观锁，业务版本使用 `*_version` 命名。
 - 公共响应、认证上下文、多租户、错误码和工具能力优先复用 `../utils`；跨服务 Dubbo 契约复用 `../rpc-api`，不在本服务复制契约。
 - 新增本服务 OpenAPI 入口、调整服务前缀，或需要经网关访问时，必须同步检查 `../gateway` 的 Nacos `gateway-spring.yaml`，并验证对应网关文档路径与 `/swagger-ui/index.html`。
 - `application.yml` 只保留本地兜底配置；真实模型密钥、向量库密钥、数据库密码必须放 Nacos，模板只提交占位符。
