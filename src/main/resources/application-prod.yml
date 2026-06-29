@@ -31,6 +31,8 @@ spring:
       - "optional:nacos:security-auth.yaml?refreshEnabled=true"
       # swagger.yaml：OpenAPI/Swagger 展示公共开关与分组配置。
       - "optional:nacos:swagger.yaml?refreshEnabled=true"
+      # ai-model-secrets.yaml：AI 模型供应商 API Key / base-url 等密钥配置；真实密钥只放 Nacos，不进仓库。
+      - "optional:nacos:ai-model-secrets.yaml?refreshEnabled=true"
       # rag.yaml：rag 服务业务配置（RAG 检索参数、collection、topK、阈值等私有 @ConfigurationProperties）。
       - "optional:nacos:rag.yaml?refreshEnabled=true"
       # rag-spring.yaml：rag 服务 Spring、数据源、Spring AI 模型和服务私有基础配置。

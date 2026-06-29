@@ -42,6 +42,7 @@ reuse-configuration.yaml
 traffic-governance.yaml
 security-auth.yaml
 swagger.yaml
+ai-model-secrets.yaml   # AI 模型供应商 API Key / base-url，供后续 embedding/rerank 引用；真实密钥只放 Nacos
 rag.yaml                # rag 业务配置：RAG 检索参数、collection、topK、阈值等私有 @ConfigurationProperties
 rag-spring.yaml         # rag Spring / 数据源 / Spring AI 模型 / 服务私有基础配置
 qdrant.yaml             # Qdrant 向量库连接，RAG 检索入口
