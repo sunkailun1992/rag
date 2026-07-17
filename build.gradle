@@ -12,23 +12,18 @@ plugins {
  * 项目基础信息
  */
 group = 'com'
-version = '1.0.1'
+version = '1.0.2'
 description = 'rag'
 
 /**
- * 阿里云 Maven 制品仓库地址。
+ * 可选私有 Maven 仓库配置仅从 Gradle Property 或环境变量读取。
  */
-def aliyunMavenReleaseUrl = 'https://packages.aliyun.com/695230d97a1ed8d3da00b21e/maven/2633353-release-no0hfp'
-
-/**
- * 阿里云 Maven 用户名，从 ~/.gradle/gradle.properties 或环境变量读取，避免明文写入仓库。
- */
-def aliyunMavenUsername = providers.gradleProperty('aliyunMavenUsername').orElse(providers.environmentVariable('ALIYUN_MAVEN_USERNAME'))
-
-/**
- * 阿里云 Maven 密码，从 ~/.gradle/gradle.properties 或环境变量读取，避免明文写入仓库。
- */
-def aliyunMavenPassword = providers.gradleProperty('aliyunMavenPassword').orElse(providers.environmentVariable('ALIYUN_MAVEN_PASSWORD'))
+def privateMavenUrl = providers.gradleProperty('privateMavenUrl')
+        .orElse(providers.environmentVariable('PRIVATE_MAVEN_URL'))
+def privateMavenUsername = providers.gradleProperty('privateMavenUsername')
+        .orElse(providers.environmentVariable('PRIVATE_MAVEN_USERNAME'))
+def privateMavenPassword = providers.gradleProperty('privateMavenPassword')
+        .orElse(providers.environmentVariable('PRIVATE_MAVEN_PASSWORD'))
 
 /**
  * 依赖版本统一管理，避免 dependencies 中散落魔法版本。
@@ -70,31 +65,22 @@ springBoot {
 }
 
 /**
- * 镜像仓库地址
+ * 依赖仓库。私库未配置时保持纯开源构建，不写入公司地址或凭据。
  */
 repositories {
     mavenLocal()
-    maven { url 'https://plugins.gradle.org/m2/' }
-    maven { url 'https://maven.aliyun.com/nexus/content/groups/public/' }
-    maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
-    maven { url 'https://maven.aliyun.com/repository/google' }
+    mavenCentral()
     maven { url 'https://maven.aliyun.com/repository/public' }
-}
-
-/**
- * 私人仓库配置
- */
-allprojects {
-    repositories {
+    if (privateMavenUrl.isPresent()) {
         maven {
-            url 'https://maven.aliyun.com/repository/public'
-        }
-        maven {
-            credentials {
-                username = aliyunMavenUsername.orNull
-                password = aliyunMavenPassword.orNull
+            name = 'privateRelease'
+            url = uri(privateMavenUrl.get())
+            if (privateMavenUsername.isPresent() && privateMavenPassword.isPresent()) {
+                credentials {
+                    username = privateMavenUsername.get()
+                    password = privateMavenPassword.get()
+                }
             }
-            url aliyunMavenReleaseUrl
         }
     }
 }
@@ -104,6 +90,7 @@ allprojects {
  */
 bootJar {
     enabled = true
+    archiveFileName = "${project.name}.jar"
 }
 
 /**
