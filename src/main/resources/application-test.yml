@@ -1,7 +1,7 @@
 # test 环境负责声明 Nacos 入口和远程配置 import；业务配置继续放 Nacos test namespace / DEFAULT_GROUP。
 # 当前 dev/test/prod 暂时共用同一套 Nacos 地址和 namespace，后期可通过 NACOS_TEST_* 单独覆盖。
 custom:
-  nacos-ip: ${NACOS_TEST_SERVER_ADDR:${NACOS_SERVER_ADDR:172.16.1.39:8848}}
+  nacos-ip: ${NACOS_TEST_SERVER_ADDR:${NACOS_SERVER_ADDR:127.0.0.1:8848}}
   namespace: ${NACOS_TEST_NAMESPACE:${NACOS_NAMESPACE:cfbf4c42-5ebb-4566-a095-30a568556a85}}
 
 spring:

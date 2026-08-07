@@ -1,0 +1,65 @@
+-- RAG 知识图谱节点与关系表。
+--
+-- 图谱是由 Qdrant 中已激活知识切片确定性投影得到的派生索引。节点和边使用稳定编码，
+-- 并显式把 tenant_id 纳入唯一索引，便于后续原样迁移到 Neo4j 或其它图数据库。
+
+CREATE TABLE IF NOT EXISTS rag_graph_node (
+    id varchar(64) NOT NULL PRIMARY KEY,
+    knowledge_base varchar(64) NOT NULL COMMENT '知识库编码',
+    document_id varchar(64) DEFAULT NULL COMMENT '来源文档ID；共享概念节点为空',
+    document_code varchar(64) DEFAULT NULL COMMENT '来源文档编码',
+    document_version int DEFAULT NULL COMMENT '来源文档业务版本',
+    node_type varchar(32) NOT NULL COMMENT '节点类型：DOCUMENT/SECTION/RECORD/CONCEPT',
+    name varchar(255) NOT NULL COMMENT '节点展示名称',
+    source_locator varchar(255) DEFAULT NULL COMMENT '源文档定位',
+    properties_json json DEFAULT NULL COMMENT '可迁移的节点扩展属性，不保存完整切片正文',
+    code varchar(64) NOT NULL COMMENT '稳定节点编码',
+    description varchar(255) DEFAULT NULL COMMENT '说明',
+    create_date_time datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    create_name varchar(255) DEFAULT NULL COMMENT '创建人',
+    modify_date_time datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    modify_name varchar(255) DEFAULT NULL COMMENT '修改人',
+    is_delete bit(1) DEFAULT b'0' COMMENT '删除状态',
+    type int DEFAULT '0' COMMENT '类型（0：默认）',
+    state int DEFAULT '1' COMMENT '状态（1：启用，2：禁用）',
+    label varchar(255) DEFAULT NULL COMMENT '标签',
+    sorting int DEFAULT '0' COMMENT '排序',
+    version int DEFAULT '1' COMMENT '乐观锁版本号',
+    tenant_id varchar(64) COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+    UNIQUE KEY uk_rag_graph_node_tenant_base_code (tenant_id, knowledge_base, code),
+    KEY idx_rag_graph_node_tenant_base_type (tenant_id, knowledge_base, node_type),
+    KEY idx_rag_graph_node_tenant_document (tenant_id, document_id),
+    KEY idx_rag_graph_node_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='RAG知识图谱节点表';
+
+CREATE TABLE IF NOT EXISTS rag_graph_edge (
+    id varchar(64) NOT NULL PRIMARY KEY,
+    knowledge_base varchar(64) NOT NULL COMMENT '知识库编码',
+    document_id varchar(64) NOT NULL COMMENT '产生该关系的来源文档ID',
+    document_code varchar(64) NOT NULL COMMENT '来源文档编码',
+    document_version int NOT NULL COMMENT '来源文档业务版本',
+    source_node_id varchar(64) NOT NULL COMMENT '起点节点ID',
+    target_node_id varchar(64) NOT NULL COMMENT '终点节点ID',
+    relation_type varchar(32) NOT NULL COMMENT '关系类型：CONTAINS/HAS_ATTRIBUTE/MENTIONS',
+    relation_label varchar(255) DEFAULT NULL COMMENT '关系展示标签或来源表头',
+    source_locator varchar(255) DEFAULT NULL COMMENT '源文档定位',
+    properties_json json DEFAULT NULL COMMENT '可迁移的关系扩展属性',
+    code varchar(64) NOT NULL COMMENT '稳定关系编码',
+    description varchar(255) DEFAULT NULL COMMENT '说明',
+    create_date_time datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    create_name varchar(255) DEFAULT NULL COMMENT '创建人',
+    modify_date_time datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    modify_name varchar(255) DEFAULT NULL COMMENT '修改人',
+    is_delete bit(1) DEFAULT b'0' COMMENT '删除状态',
+    type int DEFAULT '0' COMMENT '类型（0：默认）',
+    state int DEFAULT '1' COMMENT '状态（1：启用，2：禁用）',
+    label varchar(255) DEFAULT NULL COMMENT '标签',
+    sorting int DEFAULT '0' COMMENT '排序',
+    version int DEFAULT '1' COMMENT '乐观锁版本号',
+    tenant_id varchar(64) COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+    UNIQUE KEY uk_rag_graph_edge_tenant_base_code (tenant_id, knowledge_base, code),
+    KEY idx_rag_graph_edge_tenant_document (tenant_id, document_id),
+    KEY idx_rag_graph_edge_source (tenant_id, knowledge_base, source_node_id),
+    KEY idx_rag_graph_edge_target (tenant_id, knowledge_base, target_node_id),
+    KEY idx_rag_graph_edge_relation (tenant_id, knowledge_base, relation_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='RAG知识图谱关系表';

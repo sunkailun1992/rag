@@ -1,7 +1,7 @@
 # prod 环境负责声明 Nacos 入口和远程配置 import；业务配置继续放 Nacos prod namespace / DEFAULT_GROUP。
 # 当前 dev/test/prod 暂时共用同一套 Nacos 地址和 namespace，正式上线前必须改为生产 Nacos 地址和 prod namespace。
 custom:
-  nacos-ip: ${NACOS_PROD_SERVER_ADDR:${NACOS_SERVER_ADDR:172.16.1.39:8848}}
+  nacos-ip: ${NACOS_PROD_SERVER_ADDR:${NACOS_SERVER_ADDR:127.0.0.1:8848}}
   namespace: ${NACOS_PROD_NAMESPACE:${NACOS_NAMESPACE:cfbf4c42-5ebb-4566-a095-30a568556a85}}
 
 spring:

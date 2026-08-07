@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 /**
  * MyBatis-Plus自动维护DDL。
  * <p>
- * rag 当前不携带业务表，仅默认维护公共数据库基础表；后续新增 RAG 知识库业务表时再追加独立SQL脚本。
+ * rag 业务表使用独立增量脚本维护，避免回改已经在目标环境执行过的公共脚本。
  *
  * @author sunkailun
  * @className MysqlDdl
@@ -54,6 +54,8 @@ public class MysqlDdl implements IDdl {
      */
     @Override
     public List<String> getSqlFiles() {
-        return List.of(); // rag 当前无业务表，空库基础表通过 ../utils/src/main/resources/db/common-infra-schema.sql 手动初始化。
+        return List.of(
+                "db/rag-knowledge-graph-schema.sql"
+        ); // 图谱是可重建的派生索引，但仍通过受控 DDL 建表，不在业务请求中动态建表。
     }
 }

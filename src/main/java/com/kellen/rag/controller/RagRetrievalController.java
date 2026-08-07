@@ -6,6 +6,7 @@ import com.kellen.rpc.rag.RagRetrievalRpcRequest;
 import com.kellen.utils.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,6 +27,7 @@ public class RagRetrievalController {
     }
 
     @PostMapping("/retrievals")
+    @PreAuthorize("hasAuthority('rag:retrieval:use')")
     @Operation(summary = "检索知识上下文", description = "按查询文本返回可传给 AI Agent 的知识上下文")
     public ApiResponse<RagRetrievalRpcDTO> retrieve(@RequestBody RagRetrievalRpcRequest request) {
         return ApiResponse.success(ragRetrievalService.retrieve(request));
