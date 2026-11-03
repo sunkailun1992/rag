@@ -1,353 +1,67 @@
 # 分支管理规范
 
-本规范用于 AI 和人类统一管理 Git 分支、发布分支、临时工作分支和分支清理。当前项目族采用 `main + 短生命周期分支 + PR/CI + tag 发布 + Nacos 环境隔离`，避免长期 `dev/test/prod` 代码分支导致代码、配置、数据库脚本和 RPC 契约漂移。
+本项目使用 `main`、`test`、`preprod` 三个长期分支与短功能分支。Git 集成、CI、制品发布、环境部署和实际验收分别取证；创建或合并分支不会自动切换 Spring profile 或 Nacos namespace。
 
-## 核心原则
+## 长期分支与环境边界
 
-- `main` 是唯一长期主干，必须始终可构建、可测试、可作为发布来源。
-- 功能、修复、文档和运维改动都从 `main` 切短分支，完成后合回 `main` 并删除分支。
-- 环境不通过长期分支表达；`dev`、`test`、`prod` 是 Nacos namespace 或部署环境，不是 Git 长期分支。
-- 发布版本通过 `build.gradle version`、前端/小程序制品版本、Git tag 和发布记录表达，不通过分支名表达。
-- 金丝雀、灰度、Dubbo tag、权重和注册元数据属于运行时治理，不用 Git 分支切换流量。
-- 分支越短越好；长期存在的分支越少越好。
+| 分支 | 职责 | 保护要求 |
+|---|---|---|
+| `main` | 正式主干与完整交付基线 | 不删除、不强推；从确定 commit 构建和记录正式制品 |
+| `test` | 多功能整合与测试验证 | 不删除、不强推；记录实际集成范围与验证 commit |
+| `preprod` | 完整候选的预发验证 | 不删除、不强推；候选必须包含必需跨仓配套并可回滚 |
 
-## 长期分支
+- 缺少长期分支时，只在用户授权下从确定的已验证 main 创建；已有分支的历史保持，不通过 force/reset 重建。
+- 分支名不等于运行环境。当前个人本地入口仍默认 `dev` / `github-dev`，服务根目录 `config/application-dev.properties`、环境变量优先级和 base `application.yml` 保持现行规则。
+- 不因新增 test/preprod 分支复制公司的自动部署脚本、私有化分支、医疗业务资源或生产配置。是否触发 CI/部署以仓库实际 workflow 和单独授权为准。
+- 用户、其他会话明确保留的长期分支也受保护，不因为未列在示例中就删除。
 
-长期保留的分支默认只有：
+## 任务起点与完整功能
 
-```text
-main
-```
+1. 修改前核对实际仓库、分支、HEAD、dirty、其他会话和 worktree；先 `git fetch origin`，默认从最新 `origin/main` 的确定 SHA 创建同主题短分支。同一功能可核对归属和基线后续用原分支；只读任务不要求建分支，用户明确指定的基线按当次授权记录。
+2. 短分支只承载一个完整目标，包括必要实现、测试、文档、migration、公共契约和依赖。不得夹带他人 dirty 或为方便而整仓复制。
+3. 跨仓功能在各仓记录固定 HEAD、接口/制品精确版本、配置与 migration；公共库先验证，再验证消费者，缺少必需配套不能称为完整交付。
+4. 远端 main 前进时先同步最新基线并重新执行风险匹配验证；不强推改写已共享历史，不 stash/reset/clean 他人工作来制造干净状态。
 
-`main` 的要求：
+短分支可使用 `feature/`、`fix/`、`docs/`、`chore/`、`refactor/`、`test/`、`release/`、`hotfix/` 或本任务使用的 `codex/` 前缀，名称使用小写英文与短横线。
 
-- 不能提交无法编译、无法启动或明显破坏核心流程的代码。
-- 合入前必须完成与改动风险匹配的本地验证和 CI 验证。
-- 合入生产代码、运行时配置、数据库脚本、构建脚本或公共示例时，必须同步遵守 `VERSIONING_SPEC.md`。
-- 发布时从 `main` 的确定 commit 构建制品，并打不可变 Git tag。
+## 集成、候选与主干交付
 
-不推荐长期保留：
+- 经授权把完整功能集成到 test，在确定 commit/制品上验证；需要预发时，以完整功能及必需配套组成 preprod 候选并记录范围。
+- test 可能同时包含多个目标，不默认整条合入 preprod 或 main；只有用户确认整个分支就是本批候选时才整体交付。不得用零散 cherry-pick 拼装普通功能来绕过依赖验证。
+- main 候选基于最新主干与同一完整功能，验证候选本身后整体 merge/快进合入 main。只进入 test/preprod 尚不代表正式主干已交付，源分支继续保留。
+- Review 可按需补充，但不增加已授权提交、合并或推送的人工批准门禁。认证、授权、租户、数据库、公共契约等仍须完成专项验证；CI 状态、未验收项和失败不能隐瞒。
+- 会触发自动化的跨仓 push/merge 按用户指定顺序执行并读回实际状态，不把 push 成功当作 CI 或部署完成，不通过跳过 CI 修改规则来规避观察。
+- 编辑或建分支不等于 commit/push/merge 授权；Git 集成也不等于 tag、Maven 发布、部署或回滚授权。已给出的当前任务授权持续有效，不机械重复索要。
 
-```text
-develop
-dev
-test
-staging
-prod
-production
-```
+## 合并后的分支清理
 
-只有当外部平台强制要求或团队已有成熟流程时，才允许额外长期保护分支；新增前必须写清触发条件、合并方向、保护规则和清理策略。
+用户已授权本任务合入 main 并清理功能分支时，满足下列条件后执行远程与本地清理，无需重复确认：
 
-## 临时分支类型
-
-统一使用以下前缀：
-
-```text
-feature/<scope>-<short-desc>
-fix/<scope>-<short-desc>
-hotfix/<scope>-<short-desc>
-docs/<scope>-<short-desc>
-chore/<scope>-<short-desc>
-refactor/<scope>-<short-desc>
-test/<scope>-<short-desc>
-release/<version>
-```
-
-含义：
-
-- `feature/*`：新增用户可见功能、接口、页面或业务能力。
-- `fix/*`：普通缺陷修复，尚未影响线上紧急发布。
-- `hotfix/*`：线上紧急修复，必须优先验证、优先合并、优先发布。
-- `docs/*`：README、AI 规范、接口说明、发布说明等纯文档。
-- `chore/*`：CI、脚本、依赖维护、仓库配置、非业务构建调整。
-- `refactor/*`：不改变外部行为的结构重构。
-- `test/*`：测试补充、测试框架修正或测试数据调整。
-- `release/*`：临时发版冻结分支，仅在多仓库联动、上线窗口冻结或正式发布验收时使用。
-
-## 命名规则
-
-分支名必须：
-
-- 使用小写字母、数字和短横线。
-- 使用 `/` 分隔分支类型和名称。
-- 名称能看出模块和目标。
-- 避免中文、空格、下划线、特殊符号和过长描述。
-- 一个分支只做一个目标，不混入无关需求。
-
-推荐：
-
-```text
-feature/user-tenant-switch
-feature/ai-questionnaire-outbox
-fix/gateway-swagger-routes
-fix/report-unread-count
-hotfix/ai-chat-timeout
-docs/versioning-rules
-chore/update-dubbo-config
-refactor/utils-tenant-context
-test/user-auth-controller
-release/1.4.1
-```
-
-不推荐：
-
-```text
-dev
-test
-prod
-mywork
-new-feature
-fix
-temp
-backup
-feature/all
-feature/update
-feature/20260625
-```
-
-## 标准开发流程
-
-普通功能和修复：
-
-```text
-1. 从 main 拉取最新代码。
-2. 从 main 创建短分支。
-3. 在短分支完成开发、测试和文档更新。
-4. 推送短分支到远程。
-5. 发起 PR 或等价 review。
-6. CI 通过后合并回 main。
-7. 合并后删除远程分支。
-8. 本地执行 prune 并删除已合并本地分支。
-```
-
-命令示例：
+1. 完整功能和必需跨仓配套已进入各自 main，风险匹配验证有明确结果。
+2. fetch 并读回远端 main，核对功能固定 HEAD 的完整包含关系；不能只看本地 merge 或部分提交等价。
+3. 远程功能分支仍指向本次核对的 HEAD；若被其他人推进，先保留并查明，不能删除新工作。
+4. 分支不属于 main/test/preprod 或其他明确保留的长期分支，没有未交付的唯一提交、WIP 或在途依赖。
+5. `git worktree list --porcelain` 确认没有其他 worktree/会话使用该分支；占用、dirty 或用途不明时保留并说明，不用 `-D` 绕过。
 
 ```bash
+git fetch origin
+git merge-base --is-ancestor <功能固定SHA> origin/main
+git worktree list --porcelain
+# 以上核对均满足，且本任务已有清理授权后：
+git push origin --delete <本任务功能分支>
 git switch main
-git pull --ff-only
-git switch -c feature/user-tenant-switch
-git push -u origin feature/user-tenant-switch
+git branch -d <本任务功能分支>
+git fetch --prune origin
 ```
 
-合并后清理：
+- 本地/远程分支不存在时按实际状态记录，不为了凑清理动作重建。
+- 只进 test/preprod、未合并、包含关系不清或被其他 worktree 使用的功能分支不自动删除。过期只能提示复核，不能按天数直接删除。
+- worktree 目录与分支分开管理；释放干净且有远端保存的本任务 worktree 不等于删除尚未交付的源分支。不清理其他会话或唯一未推送提交所在目录。
+- squash/等价交付需保留完整差异与验证证据，不能仅凭 `git cherry` 或部分 patch 判定可删；`git branch -d` 拒绝时停止核对，不默认改用强删。
 
-```bash
-git fetch --prune
-git switch main
-git pull --ff-only
-git branch --merged main
-git branch -d feature/user-tenant-switch
-git push origin --delete feature/user-tenant-switch
-```
+## Release、Hotfix、版本与交付回执
 
-## Release 分支
-
-`release/<version>` 只在需要冻结发布时使用，不是长期环境分支。
-
-适用场景：
-
-- 多仓库需要同一窗口一起发版。
-- 测试阶段需要只接收修复，不继续接收新功能。
-- 正式发布前需要保留一个验收快照。
-
-流程：
-
-```text
-1. 从 main 创建 release/<version>。
-2. 只允许合入阻塞发版的 fix、docs 和 release chore。
-3. 验证通过后从 release 分支或对应 main commit 打 tag。
-4. 发布完成后把 release 修复回合 main。
-5. 确认 main 包含所有 release 修复后删除 release 分支。
-```
-
-命令示例：
-
-```bash
-git switch main
-git pull --ff-only
-git switch -c release/1.4.1
-git push -u origin release/1.4.1
-```
-
-发布完成：
-
-```bash
-git tag -a v1.4.1 -m "release: v1.4.1"
-git push origin v1.4.1
-git switch main
-git merge --ff-only release/1.4.1
-git push origin main
-git push origin --delete release/1.4.1
-git branch -d release/1.4.1
-```
-
-如果 release 分支上有无法快进合并的修复，必须通过 PR、merge 或 cherry-pick 回 `main`，不能让 release 修复只留在 release 分支。
-
-## Hotfix 分支
-
-`hotfix/*` 用于线上紧急修复。
-
-流程：
-
-```text
-1. 从当前线上 tag 或 main 创建 hotfix 分支。
-2. 只修改线上故障必需内容。
-3. 执行最小但足够的验证。
-4. 合并回 main。
-5. 打新的 patch tag。
-6. 删除 hotfix 分支。
-```
-
-规则：
-
-- hotfix 不混入重构、格式化和非必要依赖升级。
-- hotfix 必须说明线上影响、回滚方案和验证证据。
-- 如果 hotfix 从旧 tag 切出，发布后必须把修复同步回 `main`。
-
-## Tag 和版本
-
-正式发布必须使用 tag 标记：
-
-```text
-v<major>.<minor>.<patch>
-```
-
-示例：
-
-```text
-v1.4.1
-v1.4.2
-```
-
-规则：
-
-- tag 指向实际发布的 commit。
-- tag 不复用、不移动、不删除后重建，除非明确说明事故原因并通知所有消费者。
-- tag 与 `VERSIONING_SPEC.md` 的制品版本一致。
-- 多仓库联动发布时，每个仓库都在各自发布 commit 打对应 tag；发布说明写清跨仓库 commit 集合。
-
-## 环境和 Nacos 边界
-
-Git 分支不表达环境。
-
-推荐环境模型：
-
-```text
-代码主干：main
-制品版本：build.gradle version / package version / 小程序上传版本
-发布标记：Git tag
-环境隔离：Nacos namespace dev / test / prod
-配置分组：DEFAULT_GROUP
-灰度治理：Dubbo metadata / tag / weight / release version
-```
-
-禁止用这些分支表达环境：
-
-```text
-dev
-test
-prod
-production
-```
-
-Nacos 规则：
-
-- `dev`、`test`、`prod` 应该是 namespace 或部署环境。
-- 配置 group 默认使用 `DEFAULT_GROUP`。
-- 同名 dataId 在不同 namespace 中保存不同环境值。
-- 只改 Nacos 远程配置且不提交仓库文件时，不创建发布分支，不提升仓库制品版本；交付说明必须写清 namespace、group、dataId 和读回验证。
-
-## 多仓库协作
-
-涉及多个仓库时：
-
-- 每个仓库各自从 `main` 切同名或同主题短分支。
-- 公共包先改、先发本地制品、先验证消费者。
-- 消费者只依赖已发布的精确公共包版本。
-- 多仓库联动发布时，使用发布清单记录每个仓库 commit、tag、制品版本和 CI 结果。
-- 不允许把其它仓库源码复制进当前仓库。
-
-示例：
-
-```text
-utils:   feature/traffic-context
-gateway: feature/traffic-context
-user:    feature/traffic-context
-report: feature/traffic-context
-ai:      feature/traffic-context
-```
-
-## 分支清理规则
-
-远程分支清理：
-
-- PR 合并后立即删除远程 `feature/*`、`fix/*`、`docs/*`、`chore/*`、`refactor/*`、`test/*` 分支。
-- `hotfix/*` 发布并同步回 `main` 后立即删除。
-- `release/*` 发布完成且修复同步回 `main` 后立即删除。
-- 超过 7 天无更新的普通短分支需要 rebase/merge 最新 `main` 并确认是否继续。
-- 超过 14 天无更新的普通短分支默认标记 stale，需要关闭、删除或重新立项。
-- 超过 30 天仍未合并的短分支必须拆分、废弃或重新评审，不允许默默长期保留。
-
-本地分支清理：
-
-```bash
-git fetch --prune
-git branch --merged main
-git branch -d <branch-name>
-```
-
-删除远程已合并分支：
-
-```bash
-git push origin --delete <branch-name>
-```
-
-查看远程已删除但本地仍记录的分支：
-
-```bash
-git remote prune origin --dry-run
-git remote prune origin
-```
-
-查看长时间未更新分支：
-
-```bash
-git for-each-ref --sort=committerdate refs/heads refs/remotes \
-  --format='%(committerdate:short) %(refname:short)'
-```
-
-清理前必须确认：
-
-- 分支已经合并，或分支内容确认废弃。
-- 分支上没有唯一存在的发布修复、数据库脚本或配置变更。
-- 多仓库联动任务中其它仓库不再依赖该分支。
-
-## AI 操作要求
-
-AI 在修改代码或文档前：
-
-- 先确认当前分支，不在未知分支上盲改。
-- 如果用户未要求创建分支，默认在当前分支工作，但必须报告当前分支。
-- 如果当前分支不是 `main`，必须理解该分支目的，避免把无关改动混入。
-- 不自动删除用户分支；清理分支前必须确认该分支已合并或用户明确要求。
-- 不自动移动、重建或删除 tag。
-
-AI 在交付说明中必须写明：
-
-- 当前工作分支。
-- 是否创建了新分支。
-- 是否涉及版本提升。
-- 是否涉及 release/hotfix。
-- 是否有需要清理的临时分支。
-- 是否已推送，CI 状态如何。
-
-## 禁止事项
-
-- 禁止用长期 `dev/test/prod` 分支替代 Nacos namespace。
-- 禁止一个分支混入多个无关需求。
-- 禁止在未同步 `main` 的陈旧分支上继续堆积大改动。
-- 禁止 release 分支长期存在并继续开发新功能。
-- 禁止 hotfix 混入非必要重构。
-- 禁止删除未合并且未确认废弃的远程分支。
-- 禁止修改、移动或复用已发布 tag。
+- release/hotfix 都是短分支，只容纳候选冻结或故障所需内容；修复必须回到完整 main，再按实际集成需要同步 test/preprod。
+- tag 指向实际发布 commit，使用不可变 `v<major>.<minor>.<patch>`；不移动、复用或覆盖已有 tag/同版制品。
+- 版本按 `VERSIONING_SPEC.md`，公共库保留个人 `com` 坐标与精确依赖；纯规则/文档变化不额外提升业务版本。
+- 交付说明列仓库、分支/固定 HEAD、main/test/preprod 实际集成状态、跨仓配套、验证、推送/CI、制品/部署、分支及 worktree 清理结果和未验证项，不能相互代替。

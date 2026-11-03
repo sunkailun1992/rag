@@ -39,3 +39,10 @@ out/
 ### Local system files ###
 .DS_Store
 **/.DS_Store
+
+### Generated artifacts ###
+*.class
+/target/
+
+# 本机私有 dev 连接配置，不能进入 Git。
+/config/application-dev.properties

@@ -1,12 +1,16 @@
 # AI 编码执行指南
 
+## 通用修改入口
+
+先按根 `AGENTS.md`、`BRANCHING_SPEC.md` 核对仓库、WIP、最新 main 与任务授权；版本按 `VERSIONING_SPEC.md` 做进位和占用检查。main/test/preprod 的集成证据、远端核对、短分支清理与 worktree 保护分别记录；纯文档不重复跑 Java 测试或额外提升制品版本。
+
 ## 使用方式
 
 当用户要求新增或修改业务功能时，AI 应按以下顺序工作：
 
 1. 阅读当前业务模块已有代码。
 2. 阅读 `AI_AUTOMATION_WORKFLOW.md`，先形成需求说明、验收标准和开发手册。
-3. 阅读 `AI_ENGINEERING_GUARDRAILS.md`，确认风险等级、必须测试、安全门禁、Review 门禁和交付说明。
+3. 阅读 `AI_ENGINEERING_GUARDRAILS.md`，确认风险等级、必须测试、安全门禁、独立风险验证与 Review 建议和交付说明。
 4. 阅读 `AI_DIRECTORY_STRUCTURE_GUIDE.md`，确认 Java 微服务目录、测试、资源、文档和跨项目边界。
 5. 阅读 `AI_DESIGN_PATTERN_GUIDE.md`，确认RAG 知识检索服务适用的设计模式和禁止过度抽象规则。
 6. 阅读 `PROJECT_CODING_SPEC.md`。

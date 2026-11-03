@@ -12,25 +12,20 @@
 
 ## 环境规则
 
-- `alpha` 是测试环境。
-- `bate` 是预发环境。
-- 公测测试是灰度环境。
-- 产品验收是正式环境。
-- 严禁在正式环境制造或修改测试数据。
-- 正式环境问题必须走钉钉流程，不能直接在线修改。
+- profile、Nacos namespace 与私有引导配置按 `ENVIRONMENT_CONFIG_SPEC.md`；当前个人本地 dev 使用 github-dev，不沿用归档里的旧环境或组织工具约定。
+- main/test/preprod 是 Git 职责，不自动切换运行环境；正式环境不得制造测试数据，配置、数据修复和部署按明确授权与回滚计划执行。
 
 ## 分支规则
 
-- `personal` 融合 `dev` 时两个分支必须保持同步版本。
-- 禁止不同版本分支直接融合。
-- 修复 bug 时新建 bug 修复分支。
-- bug 修复完成后，需要向上融合到所有后续迭代版本分支。
-- bug 修复分支完成融合后再删除。
+- 当前分支流程以 `AGENTS.md` / `BRANCHING_SPEC.md` 为准：核仓库、WIP、worktree 后 fetch，普通新目标从最新 origin/main 建短分支，承载完整功能及必需配套。
+- 授权集成 test/preprod 后保留尚未进入 main 的源分支；完整功能及配套进入远端 main、读回包含关系后，按已有授权清理本地/远程功能分支。
+- 保护 main/test/preprod、未合或其他 worktree 在用的分支；不强推、不按过期天数自动删除，不把释放 worktree 当作分支交付。
+- archive 的 personal/dev 团队原文仅作历史资料，不作为当前操作指令；版本、精确公共包和外部发布授权按现行规范执行。
 
 ## 数据库规则
 
-- 迭代版本涉及数据库表结构变动时，必须同步 Navicat 协作组模型设计。
-- 表结构变更 SQL 必须记录到对应后端开发需求备注。
+- 迭代版本涉及表结构变动时，同步权威 DDL、实体与测试 schema，并记录 migration 和回滚影响。
+- 表结构变更 SQL 必须关联对应需求与交付记录，已执行脚本按现行 DDL 规则追加迁移。
 - 每个数据库状态字段都必须有对应枚举类。
 - 整数状态枚举必须实现 `IEnum<Integer>`，用于接口返回和中文说明输出。
 - `type`、`state` 等业务字段由具体业务模块定义，不写入 `EntityBase`。
@@ -72,6 +67,6 @@
 - 是否已阅读 `PROJECT_CODING_SPEC.md`。
 - 是否已阅读本文件。
 - 是否需要打开 `archive/utils-markdown/ErrorCode.md` 查完整错误码。
-- 是否需要打开 `archive/utils-markdown/Announcement.md` 核对团队流程原文。
+- 是否需要打开 `archive/utils-markdown/Announcement.md` 核对历史原文；当前操作仍按 AGENTS/BRANCHING，不恢复旧分支流程。
 - 是否需要打开 `archive/utils-markdown/Specification.md` 核对 Java 通用规范。
 - 是否避免把公共规范重新放回运行时 `src/main/resources`。
