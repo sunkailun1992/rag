@@ -29,7 +29,7 @@ import org.springframework.web.socket.server.standard.ServerEndpointExporter;
 @EnableScheduling
 @EnableTransactionManagement
 @MapperScan("com.kellen.*.mapper")
-public class ApiApplication {
+public class RagApplication {
 
 	/**
 	 * JVM 进程入口，启动 RAG 知识检索服务。
@@ -37,7 +37,7 @@ public class ApiApplication {
 	 * @param args 命令行参数
 	 */
 	public static void main(String[] args) {
-		SpringApplication.run(ApiApplication.class, args);
+		SpringApplication.run(RagApplication.class, args);
 	}
 
 	/**

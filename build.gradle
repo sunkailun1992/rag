@@ -12,7 +12,7 @@ plugins {
  * 项目基础信息
  */
 group = 'com'
-version = '1.0.6'
+version = '1.0.7'
 description = 'rag'
 
 /**
@@ -61,7 +61,7 @@ java {
 }
 
 springBoot {
-    mainClass = 'com.kellen.ApiApplication'
+    mainClass = 'com.kellen.RagApplication'
 }
 
 /**
