@@ -1,9 +1,9 @@
 # GitHub prod 独立环境；禁止回落到公司 dev namespace。
 custom:
-  nacos-ip: ${GITHUB_NACOS_PROD_SERVER_ADDR:${GITHUB_NACOS_SERVER_ADDR:127.0.0.1:8848}}
-  namespace: ${GITHUB_NACOS_PROD_NAMESPACE:github-prod}
-  nacos-username: ${GITHUB_NACOS_USERNAME:}
-  nacos-password: ${GITHUB_NACOS_PASSWORD:}
+  nacos-ip: ${GITHUB_NACOS_DEV_SERVER_ADDR:${GITHUB_NACOS_SERVER_ADDR:172.16.1.70:8848}}
+  namespace: ${GITHUB_NACOS_DEV_NAMESPACE:github-dev}
+  nacos-username: ${GITHUB_NACOS_USERNAME:nacos}
+  nacos-password: ${GITHUB_NACOS_PASSWORD:nacos}
 
 spring:
   cloud:
