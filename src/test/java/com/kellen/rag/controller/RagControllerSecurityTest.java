@@ -30,9 +30,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * RAG HTTP 接口权限边界测试。
+ * 独立配置名避免读取运行时 Nacos import 和本机私有引导，业务服务由 MockitoBean 提供。
  */
-@WebMvcTest({RagDocumentController.class, RagRetrievalController.class,
-        RagKnowledgeGraphController.class})
+@WebMvcTest(controllers = {RagDocumentController.class, RagRetrievalController.class,
+        RagKnowledgeGraphController.class}, properties = {
+        "spring.config.name=rag-controller-isolated",
+        "spring.cloud.nacos.config.enabled=false",
+        "spring.cloud.nacos.config.import-check.enabled=false",
+        "spring.cloud.nacos.discovery.enabled=false"
+})
 @Import({SecurityAuthConfig.class, GlobalExceptionHandler.class})
 @ContextConfiguration(classes = {
         RagDocumentController.class,
