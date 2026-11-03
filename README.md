@@ -2,7 +2,7 @@
 
 `rag` 是 RAG 知识检索服务后端微服务。
 
-当前项目从现有 Java 微服务工程骨架（`report`）复制迁移而来，**不包含任何 report 业务代码**，也不包含 `user` 服务的用户、租户、角色、权限资源等业务类。当前已实现 XLSX 结构化摄取、embedding、Qdrant 向量存储与检索、rerank 重排、文档幂等/版本、向量读回校验，以及可视化知识图谱投影；MCP 工具和 AI Registry 注册仍属后续阶段。
+当前项目从现有 Java 微服务工程骨架（`report`）复制迁移而来，**不包含任何 report 业务代码**，也不包含 `user` 服务的用户、租户、角色、权限资源等业务类。当前已实现 XLSX / DOCX 结构化摄取、embedding、Qdrant 向量存储与检索、rerank 重排、文档幂等/版本、向量读回校验，以及可视化知识图谱投影；MCP 工具和 AI Registry 注册仍属后续阶段。
 
 ## 技术基线
 
@@ -15,7 +15,7 @@
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com.kellen:utils:1.4.8`，跨服务契约沿用当前已发布坐标 `com:rpc-api:1.0.6`
+- 公共能力依赖 `com.kellen:utils:1.4.9`，跨服务契约固定 `com:rpc-api:1.0.7`（本批先发布 Maven Local 验证）
 - 测试框架统一使用 JUnit 5
 
 ## 服务职责
@@ -23,7 +23,7 @@
 `rag` 定位为 fleet / AI 中台的「知识检索」能力提供方。当前 `ai` 可通过 Dubbo RPC 调用 `rag` 获取检索上下文；后续如需被智能体动态发现，再以 **MCP 工具 + Nacos AI Registry** 形式暴露给 `ai-agent` 等调用方。
 
 - **检索**：输入查询 → embedding → Qdrant 向量检索 → 返回带出处的上下文片段（不替调用方叫模型、不下结论）。
-- **摄取**：当前只接收 XLSX；按“工作表 + 完整表头 + 单行记录”切片后 embedding 并写入 Qdrant。摄取侧与查询侧固定使用同 embedding 模型、同维度。
+- **摄取**：当前接收 XLSX 和 DOCX；XLSX 按“工作表 + 完整表头 + 单行记录”切片，DOCX 按标题段落和表格行切片，再 embedding 并写入 Qdrant。摄取侧与查询侧固定使用同 embedding 模型、同维度。
 - **能力暴露**：当前先提供 `RagRetrievalRpcService` 和 `/api/rag/retrievals` HTTP 边界；后续再补 `knowledge_search` 等 MCP 工具 + Nacos AI Registry AgentCard 注册，供 fleet 内任意 agent 复用。
 - **知识库管理**：Qdrant payload 显式保存租户、知识库、文档版本、来源、文件/内容指纹和重复行位置。相同文件幂等，同编码新内容生成新版本；文档内语义相同且仅序号/行号不同的记录合并向量，但保留全部定位信息。
 - **知识图谱**：从活动向量切片确定性投影文档、工作表、记录和概念关系；图谱表是可重建派生索引，不让模型猜测关系，稳定节点/边编码便于后续迁移到 Neo4j。
@@ -107,3 +107,5 @@ bash scripts/check-secrets.sh
 ```
 
 如果依赖 `utils` 有调整，先在同级 `utils` 项目执行 `./gradlew publishToMavenLocal`，再回到本项目编译。
+
+通用安全、隔离与本批验证边界见 [安全与架构说明](docs/security-architecture-sync.md)。

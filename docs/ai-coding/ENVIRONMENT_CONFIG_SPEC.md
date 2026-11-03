@@ -1,101 +1,19 @@
-# 环境配置入口规范
+# GitHub 环境配置入口规范
 
-本规范用于区分代码分支、部署环境、Nacos namespace 和运行时灰度治理。`main` 不是环境，Java 服务通过 Spring profile 选择 `dev`、`test`、`prod`，再由对应 profile 文件映射到 Nacos 地址和 namespace。
+个人项目与美联公司开发环境分别维护。代码使用 main 和短功能分支；环境由 Spring profile 与独立 Nacos namespace 表达，不沿用公司的 test/preprod 分支流程。
 
-## Java 服务文件结构
+| profile | 默认 namespace | Nacos 地址变量 |
+|---|---|---|
+| dev | github-dev | GITHUB_NACOS_DEV_SERVER_ADDR → GITHUB_NACOS_SERVER_ADDR → localhost |
+| test | github-test | GITHUB_NACOS_TEST_SERVER_ADDR → GITHUB_NACOS_SERVER_ADDR → localhost |
+| prod | github-prod | GITHUB_NACOS_PROD_SERVER_ADDR → GITHUB_NACOS_SERVER_ADDR → localhost |
 
-Java / Spring Boot 服务只保留以下本地入口文件：
+各环境 namespace 仅由 GITHUB_NACOS_<ENV>_NAMESPACE 显式覆盖，不再接受旧 NACOS_NAMESPACE 回退。当前只建立 github-dev；github-test/github-prod 未创建、未部署，不得指向公司 dev 临时替代。
 
-```text
-src/main/resources/application.yml
-src/main/resources/application-dev.yml
-src/main/resources/application-test.yml
-src/main/resources/application-prod.yml
-```
+application.yml 仅保留端口、服务名、默认 APP_ENV=dev 与 GITHUB_NACOS_GROUP。application-*.yml 同时声明连接地址、namespace、config/discovery 绑定和本 profile 的 spring.config.import。真实中间件、业务开关和密钥仍在对应 Nacos；不将业务配置搬回本地 profile。
 
-职责划分：
+config 与 discovery 共用 custom.nacos-ip/custom.namespace。Dubbo、Nacos AI Registry 和 Prompt SDK 也必须显式引用它们；独立 SDK 的 username/password 不能假设继承 Spring Cloud 配置。Gateway 不承担业务认证。
 
-- `application.yml`：通用启动骨架，放 `server.port`、`spring.application.name`、`spring.profiles.active` 和 `custom.nacos-group`；不放 Nacos 地址、namespace 或远程业务配置。
-- `application-dev.yml`：放 dev 环境 Nacos `server-addr`、`namespace`、Nacos config/discovery 绑定逻辑和本环境 `spring.config.import`。
-- `application-test.yml`：放 test 环境 Nacos `server-addr`、`namespace`、Nacos config/discovery 绑定逻辑和本环境 `spring.config.import`。
-- `application-prod.yml`：放 prod 环境 Nacos `server-addr`、`namespace`、Nacos config/discovery 绑定逻辑和本环境 `spring.config.import`。
+个人环境的可提交模板、私有渲染、CAS 发布、数据库与统一 X File Storage 入口统一见同级 utils/ops/github-dev/README.md。私有配置只在 ~/.config/kellen-github/，不进 Git。前端不连接 Nacos，后端 base URL 沿用 http://localhost:7100。
 
-禁止在 `application-dev.yml`、`application-test.yml`、`application-prod.yml` 中放数据库、Redis、MQ、OSS、模型密钥、业务参数、Dubbo 参数或业务路由规则；这些配置必须继续放 Nacos 对应 namespace 的 `DEFAULT_GROUP` dataId。profile 文件只允许保存连接 Nacos 和导入 dataId 所需的启动入口。
-
-## 启动方式
-
-启动时只需要传一个环境：
-
-```bash
-APP_ENV=test java -jar app.jar
-```
-
-或：
-
-```bash
-java -jar app.jar --spring.profiles.active=test
-```
-
-允许值：
-
-```text
-dev
-test
-prod
-```
-
-默认值为 `dev`，由 `application.yml` 中的 `${APP_ENV:dev}` 控制。
-
-## Nacos 映射规则
-
-当前 dev/test/prod 暂时共用同一套 Nacos 地址和 namespace；后期环境拆开时，只改对应 profile 文件或部署环境变量。
-
-环境变量优先级：
-
-```text
-dev:
-  NACOS_DEV_SERVER_ADDR -> NACOS_SERVER_ADDR -> 当前默认地址
-  NACOS_DEV_NAMESPACE   -> NACOS_NAMESPACE   -> 当前默认 namespace
-
-test:
-  NACOS_TEST_SERVER_ADDR -> NACOS_SERVER_ADDR -> 当前默认地址
-  NACOS_TEST_NAMESPACE   -> NACOS_NAMESPACE   -> 当前默认 namespace
-
-prod:
-  NACOS_PROD_SERVER_ADDR -> NACOS_SERVER_ADDR -> 当前默认地址
-  NACOS_PROD_NAMESPACE   -> NACOS_NAMESPACE   -> 当前默认 namespace
-```
-
-规则：
-
-- `spring.cloud.nacos.config.namespace` 和 `spring.cloud.nacos.discovery.namespace` 必须使用同一个 `custom.namespace`。
-- `spring.cloud.nacos.config.server-addr` 和 `spring.cloud.nacos.discovery.server-addr` 必须使用同一个 `custom.nacos-ip`。
-- Nacos group 默认统一为 `DEFAULT_GROUP`；`spring.config.import` URL 不重复携带 `group=DEFAULT_GROUP`，由同 profile 文件中的 `spring.cloud.nacos.config.group` / `custom.nacos-group` 控制。只有跨 group 特例才在单条 import URL 显式写 `group`。import 必须与该 profile 的 Nacos 地址放在同一个环境文件中，避免 ConfigData 解析阶段拿不到 `custom.nacos-ip`。
-- 不再用 `group=test` 表达环境。
-- 同名 dataId 在不同 namespace 保存不同环境值。
-
-## Prod 注意事项
-
-正式上线前必须确认：
-
-- `application-prod.yml` 或部署 Secret 已指向生产 Nacos 地址。
-- `application-prod.yml` 或部署 Secret 已指向 prod namespace。
-- prod namespace 中存在完整 dataId。
-- prod 的数据库、Redis、MQ、OSS、Seata、Dubbo、日志和告警配置与 test 隔离。
-- 不能让 prod 进程读取 test namespace，也不能让 test 进程注册到 prod discovery namespace。
-
-## 前端和小程序
-
-前端和小程序没有 Spring profile，不直接连接 Nacos。
-
-- 前端只配置网关地址、构建模式和请求头默认值。
-- 小程序只配置 API base URL、上传配置和请求头默认值。
-- 前端/小程序不能保存 Nacos 地址、namespace、数据库、Redis、MQ 或生产密钥。
-
-## 禁止事项
-
-- 禁止把 `spring.config.import` 放回通用 `application.yml` 再引用 profile 文件里的 Nacos 地址；ConfigData 解析阶段拿不到 profile 中的 `custom.nacos-ip`，会触发 `illegal URI`。
-- 禁止把业务配置从 Nacos 搬回本地 profile 文件。
-- 禁止用 Git 分支名区分 dev/test/prod。
-- 禁止 config namespace 和 discovery namespace 不一致。
-- 禁止在 prod profile 中默认指向 test Nacos 后仍声称已完成正式环境隔离；当前共用只允许作为上线前临时状态。
+只读校验：在 utils 运行 python3 ops/github-dev/scripts/verify_configuration.py。发布前读回旧配置，已有内容更新必须 CAS；发布后逐项读回，不能以命令成功代替运行验收。

@@ -6,7 +6,7 @@ server:
 # 这里不能引用 reuse-configuration.yaml，因为远程配置还没有加载。
 custom:
   # Nacos 默认分组，大部分公共配置放 DEFAULT_GROUP。
-  nacos-group: ${NACOS_GROUP:DEFAULT_GROUP}
+  nacos-group: ${GITHUB_NACOS_GROUP:DEFAULT_GROUP}
 
 spring:
   profiles:

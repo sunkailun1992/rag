@@ -1,5 +1,7 @@
 # Nacos 配置中心规范（Fleet 统一）
 
+> GitHub 个人环境现行覆盖：namespace 固定独立为 `github-dev/github-test/github-prod`；只使用 `GITHUB_NACOS_*` 引导变量，不回落公司 dev。通用模板与私有 CAS 发布见同级 `utils/ops/github-dev/README.md`。本轮不复制公司业务 dataId。
+
 > 本文件是**全 fleet 统一**的 Nacos 配置中心分层与拆分规范，各服务仓库内容一致。
 > 网关路由等服务专属约定见各自 `GATEWAY_CODING_SPEC.md` / `NACOS_CONFIG_SPEC.md` 的服务段，不与本规范冲突。
 > 本地环境入口、Spring profile 与 Nacos namespace 的映射详见 `ENVIRONMENT_CONFIG_SPEC.md`。
@@ -32,7 +34,7 @@
 ## 3. 各 dataId 内容边界
 
 - **`reuse-configuration.yaml`**：**只放 `custom.*` 公共变量**（基础设施地址 + Nacos 凭据变量，如 `custom.infra-*`、`custom.nacos-username/password/context-path`）。**不放任何业务块或第三方密钥块**。
-- **本地 `application-dev/test/prod.yml`**：定义 `custom.nacos-ip`、`custom.namespace`、Nacos config/discovery 绑定逻辑和本环境 `spring.config.import`；当前 dev/test/prod 默认指向同一 Nacos 地址和 namespace，后期环境拆开时只改对应 profile 文件或部署环境变量。
+- **本地 `application-dev/test/prod.yml`**：定义 `custom.nacos-ip`、`custom.namespace`、Nacos config/discovery 绑定逻辑和本环境 `spring.config.import`；GitHub dev/test/prod 使用各自独立 namespace，后期环境拆开时只改对应 profile 文件或部署环境变量。
 - **`traffic-governance.yaml`**：统一放灰度发布请求头名、默认 `X-Release-Version`、默认 `X-Traffic-Lane`、实例 `release.version`/`traffic.lane`/`canary.tag`/`traffic.weight` 元数据，以及 Nacos Discovery 元数据。**权重是治理配置和实例元数据，不由公网前端随意决定**；公网前端默认只带发布版本和泳道，灰度 tag/权重必须由受控配置显式开启。
 - **`logging/traffic-governance/redis/rabbitmq/elasticsearch/seata/zipkin/admin/dubbo/xxl-job/mybatis-plus/security-auth`**：各对应一组 utils 自动配置 / Spring 体系前缀，整组留在各自 dataId。
 - **`qdrant.yaml`**：Qdrant 向量数据库连接配置，当前由 `ai` profile 导入作为备用向量库入口；保留连接能力不等于默认启用本地 RAG 或 Spring AI VectorStore 执行链。

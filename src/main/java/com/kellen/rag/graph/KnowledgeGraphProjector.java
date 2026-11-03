@@ -68,19 +68,22 @@ public class KnowledgeGraphProjector {
             String locator = limited(required(payload, "source_locator"), 255);
             String chunkType = required(payload, "chunk_type");
             LinkedHashMap<String, String> fields = parseFields(required(payload, "content"));
+            boolean wordChunk = chunkType.startsWith("docx-");
 
             KnowledgeGraphNode section = node(tenantId, knowledgeBase,
                     "section|" + documentId + "|" + normalizedKey(sectionPath),
-                    RagGraphNodeType.SECTION, sectionPath, "工作表", documentId, documentCode,
+                    RagGraphNodeType.SECTION, sectionPath, wordChunk ? "章节" : "工作表",
+                    documentId, documentCode,
                     documentVersion, sectionPath, Map.of("sectionPath", sectionPath), 20);
             nodes.putIfAbsent(section.id(), section);
             addEdge(edges, edge(tenantId, knowledgeBase, document, section,
-                    RagGraphRelationType.CONTAINS, "包含工作表", documentId, documentCode,
+                    RagGraphRelationType.CONTAINS, wordChunk ? "包含章节" : "包含工作表",
+                    documentId, documentCode,
                     documentVersion, sectionPath, Map.of(), 10));
 
             KnowledgeGraphNode record = node(tenantId, knowledgeBase,
                     "record|" + documentId + "|" + chunkId,
-                    RagGraphNodeType.RECORD, recordName(fields, locator), "知识记录", documentId,
+                    RagGraphNodeType.RECORD, recordName(fields, locator), recordLabel(chunkType), documentId,
                     documentCode, documentVersion, locator,
                     Map.of("chunkId", chunkId, "chunkType", chunkType, "sectionPath", sectionPath),
                     100 + pointOrder++);
@@ -173,6 +176,14 @@ public class KnowledgeGraphProjector {
         return fields.values().stream()
                 .filter(value -> StringUtils.hasText(value) && value.length() <= MAX_CONCEPT_LENGTH)
                 .findFirst().orElse(locator);
+    }
+
+    private String recordLabel(String chunkType) {
+        return switch (chunkType) {
+            case "docx-paragraph" -> "知识段落";
+            case "docx-table-row" -> "表格记录";
+            default -> "知识记录";
+        };
     }
 
     private void requireSameDocument(String tenantId, String knowledgeBase, String documentId,

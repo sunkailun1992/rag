@@ -37,7 +37,7 @@ public class RagDocumentController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "上传知识文档", description = "当前 知识库仅支持 xlsx；相同文件指纹幂等，同文档编码新内容生成新版本")
+    @Operation(summary = "上传知识文档", description = "支持 xlsx 表格和 docx 结构化文档；相同文件指纹幂等，同文档编码新内容生成新版本")
     public ApiResponse<RagDocumentIngestionVO> upload(
             @RequestPart("file") MultipartFile file,
             @RequestParam(required = false) String knowledgeBase,
