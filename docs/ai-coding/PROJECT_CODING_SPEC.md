@@ -24,7 +24,7 @@
 
 - AI 不得因为当前业务项目临时缺少工具类，就直接在当前微服务新增 `utils`、`common`、`helper` 等公共包。
 - 确认属于公共能力时，先检索同级 `utils` 项目已有实现；已有能力直接调用，不重复编写。
-- `utils` 确实缺少能力时，才修改同级 `utils` 项目，执行 `mvn -q -DskipTests install`，再回到当前微服务升级或确认 `com:utils` 依赖版本。
+- `utils` 确实缺少能力时，才修改同级 `utils` 项目，执行 `./gradlew publishToMavenLocal`，再回到当前微服务升级或确认 `com:utils` 依赖版本。
 - 业务微服务只保留当前业务专属代码，例如 Controller、Service、Mapper、Entity、BO、Query、VO、业务枚举和业务 SQL。
 - 如果无法判断是否应进入 `utils`，先按“是否会被两个以上微服务复用”判断；会复用则进入 `utils`，不会复用才留在当前微服务。
 

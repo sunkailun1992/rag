@@ -12,7 +12,7 @@ plugins {
  * 项目基础信息
  */
 group = 'com'
-version = '1.0.4'
+version = '1.0.5'
 description = 'rag'
 
 /**
@@ -40,7 +40,7 @@ ext {
     // Seata Client 版本；当前已发布 starter 最新为 2.6.0，可注册到 Seata Server 2.7.0。
     seataVersion = '2.6.0'
     // 公共 utils 包版本，必须与本地或远程 Maven 制品保持一致。
-    utilsVersion = '1.4.9'
+    utilsVersion = '1.5.1'
     // 公共 RPC 契约包版本，必须与 provider/consumer 使用的契约保持一致。
     rpcApiVersion = '1.0.7'
 }
@@ -131,7 +131,7 @@ dependencies {
     // rpc-api：引入跨服务 Dubbo RPC 接口和 DTO 契约；provider/consumer 不复制接口定义。
     implementation "com:rpc-api:${rpcApiVersion}"
     // utils：引入统一认证上下文、多租户、公共异常、统一响应、MyBatis-Plus 配置和通用工具能力。
-    implementation "com.kellen:utils:${utilsVersion}"
+    implementation "com:utils:${utilsVersion}"
     // Nacos Discovery：支持服务注册与服务发现。
     implementation 'com.alibaba.cloud:spring-cloud-starter-alibaba-nacos-discovery'
     // Nacos Config：支持从 Nacos 配置中心读取应用配置。

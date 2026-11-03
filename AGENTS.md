@@ -7,6 +7,7 @@
 - 项目名称：`rag`
 - 项目类型：RAG 知识检索服务后端；为 fleet / AI 中台提供「知识检索」能力，以 **MCP 工具 + Nacos AI Registry** 形式被智能体（如 `ai-agent` 及后续新中台 agent）发现并调用。
 - 技术栈：Java 17、Spring Boot 4、（Phase 2 引入）Spring AI 2 + Qdrant 向量库、Spring Cloud Alibaba、Nacos、Dubbo、MyBatis-Plus、Gradle、`com:utils`、`com:rpc-api`
+- Utils 制品隔离：本 GitHub 个人项目固定使用 `com:utils:1.5.1`；公司项目使用 `com.kellen:utils`。二者共用私有 Maven 地址，以 group 区分制品；Java 包名 `com.kellen.*` 不随 Maven group 改动。
 - 同级依赖：`../rpc-api` 提供跨服务 RPC 接口和 DTO 契约；`../utils` 提供公共响应、认证上下文、租户、多数据源和基础工具；`../gateway` 负责路由；`../ai-agent` 是当前主要 MCP / AI Registry 消费方
 - 当前状态：从现有 Java 微服务工程骨架（`report`）复制迁移而来，只保留基础工程、配置入口、公共基础设施 DDL、CI、脚本和 AI 编码规范；**不携带任何 report 业务代码**。RAG 业务（检索、摄取、向量库、MCP 工具、AI Registry 注册）尚未实现，属 Phase 2。
 - 核心风险：检索结果污染模型上下文或越权读取知识、医疗/专业知识来源不可信、embedding 模型与维度在「摄取」与「查询」两侧不一致、向量库连接与降级、敏感数据（如患者画像）归属与合规、MCP / A2A 契约不稳
