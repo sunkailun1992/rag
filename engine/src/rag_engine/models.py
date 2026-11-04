@@ -56,7 +56,10 @@ class RetrievalRequest(Contract):
 
 class Hit(Contract):
     id: str
-    score: float = Field(allow_inf_nan=False)
+    score: float = Field(
+        allow_inf_nan=False,
+        description="成功重排为通过独立相关性门槛的[0,1]分数；重排降级时为原dense或RRF分数，不同尺度不可混用。",
+    )
     payload: dict[str, Any]
 
 
@@ -65,4 +68,6 @@ class RetrievalResponse(Contract):
     mode: Literal["dense", "hybrid"] = Field(
         default="dense", description="实际使用的召回模式；hybrid 为完整 sparse 索引与 dense 经 RRF 融合。"
     )
-    degraded: bool = False
+    degraded: bool = Field(
+        default=False, description="重排失败或词法不可用时标记；重排失败的候选未通过独立相关性门槛。"
+    )

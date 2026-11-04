@@ -42,3 +42,9 @@ Qdrant 保留 unnamed dense vector；Java `hybrid-write-enabled` 打开时原子
 启用前先跑 `./gradlew test bootJar`、`engine/` 测试和 `evaluation/` 回归，再使用独立测试知识库做真实 PDF/OCR 与检索试验。上线只改个人 github-dev 配置并读回；美联、Yudao 不在范围。Python 配置由部署环境注入，Java 配置发布遵循 Nacos CAS/备份要求。
 
 回滚先关闭 `rag.engine.retrieval-enabled`，保留旧 Java 检索；解析开关可独立关闭，已有向量和文档继续可读。无需回滚数据库 DDL或删除旧向量。检索改造不得复制公司业务数据。
+
+## 合成题库真实模型验收
+
+本轮使用现有千问 text-embedding-v4 / qwen3-rerank 与真实 Qdrant，28篇合成文档、60题（52正向/8负向），dense/hybrid共用一次构建的文档向量与同一3秒请求预算。初轮记录8次不相关误召回，没有放宽门禁；修复独立重排相关性门槛，并用奇数题校准、偶数题验证0.5阈值。最终同题全量重跑正向Recall@6=1、负向误召回=0、作用域泄漏=0、错误=0；两路均通过非回退的质量门禁，临时集合删除后确认404。此合成集两种模式指标相同，不能据此声称混合检索较dense提分，仍须用真实知识样本验证泛化。
+
+原始失败/最终报告与阈值校准记录位于Git忽略的build/evaluation-live，真实值和运行结果不提交。Langfuse导入CSV只含合成问题，可选导入；未部署常驻Langfuse服务。没有生成答案，因此不把召回指标当Ragas faithfulness或答案正确率。

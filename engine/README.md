@@ -7,7 +7,8 @@
 - 文字型 PDF：pypdf 提取逐页文本，LlamaIndex `SentenceSplitter` 按字符预算及重叠切片，保留页码。
 - 扫描 PDF、PNG/JPEG：转给运维指定的 PaddleOCR `/layout-parsing`，保留区块类型、页码和坐标。没有 OCR 地址时返回 `OCR_NOT_CONFIGURED`，不把缺页结果当成功。
 - 检索：保留 Qdrant unnamed dense；可显式启用 `lexical-v1` TF-IDF 稀疏倒排索引，使用 LlamaIndex Retriever 编排双路召回、RRF、去重与千问 rerank。每次查询有租户、知识库、ACTIVE 状态过滤，返回前再次检查；模型/维度 metadata 必须与配置一致。
-- 降级：rerank 单独失败可使用本次向量排序，响应明确 `degraded=true`；embedding、Qdrant 或隔离验证失败则整个请求失败，不能放宽过滤。
+- 相关性：成功重排只保留 `relevance_score >= RAG_ENGINE_RERANK_SCORE_THRESHOLD` 的候选，默认门槛 `0.5`；全部候选低于门槛时返回空命中，避免无答案问题也硬凑 topK。
+- 降级：rerank 单独失败可使用本次向量排序，响应明确 `degraded=true`；这条降级路径缺少相关性门槛保证，调用方应将结果视为未完成重排的候选，不能宣称“无答案”质量门禁仍通过。embedding、Qdrant 或隔离验证失败则整个请求失败，不能放宽过滤。
 - 混合检索默认关闭。显式 schema 准备与完整回填 CLI 已提供；旧 Java 单写会失去 sparse，必须配套新摄取双写。查询改写、异步摄取、图像语义描述不在本引擎本轮实现中。
 
 ## 启动
@@ -57,7 +58,7 @@ uv run --frozen uvicorn rag_engine.app:create_app --factory --host 127.0.0.1 --p
 
 `RAG_ENGINE_HYBRID_ENABLED=false` 保持旧 dense 路径。设为 `true` 后，每次查询先检查 collection 的 unnamed dense 维度和 Cosine 距离、`lexical-v1` sparse 的 `idf` modifier，并以精确 count 检查当前 tenant/knowledgeBase 的每个 ACTIVE 点同时具备真实 sparse 向量和 `sparse_model=lexical-v1`。缺 schema 返回 `SPARSE_SCHEMA_NOT_READY`；缺值或版本不匹配返回 `SPARSE_INDEX_INCOMPLETE`，不静默假称 hybrid。失败不会自动修改任何 collection。
 
-准备完成后，LlamaIndex `ScopedQdrantRetriever` 分别查真实 dense 与 sparse 索引，`ReciprocalRankRetriever` 并发编排、取消失败的伴随请求并按 RRF `1/(60+rank)` 融合，rank 从 1 起。dense 使用 `similarityThreshold`；TF-IDF 与 RRF 分数不同尺度，不套用 dense 阈值。融合后按 `candidateCount` 限候选、按内容去重、执行千问重排。重排失败保留本次 RRF 排序，`mode=hybrid,degraded=true`；无可编码查询词时使用 `mode=dense,degraded=true`。任何一路隔离验证失败都拒绝请求。总链路仍受 3 秒预算约束。
+准备完成后，LlamaIndex `ScopedQdrantRetriever` 分别查真实 dense 与 sparse 索引，`ReciprocalRankRetriever` 并发编排、取消失败的伴随请求并按 RRF `1/(60+rank)` 融合，rank 从 1 起。dense 使用 `similarityThreshold`；TF-IDF 与 RRF 分数不同尺度，不套用 dense 阈值。融合后按 `candidateCount` 限候选、按内容去重、执行千问重排。重排分数必须为有限数且在 `[0,1]` 内；完整响应验证通过后，按独立的 `RAG_ENGINE_RERANK_SCORE_THRESHOLD`（默认 `0.5`，可配置范围 `[0,1]`）过滤。门槛包含边界，全部低分时返回空列表且不因此标记降级。默认 `0.5` 来自本轮 28 份合成文档、60 题、按 tenant/KB 真过滤后的千问重排校准：奇数题校准、偶数题验证，两半在该门槛下均无误接收或误拒绝。这是合成语料的校准证据，不能代替实际业务数据泛化验证；换语料或模型仍需用带无答案反例的数据集校准。重排失败保留本次 RRF 排序，`mode=hybrid,degraded=true`，不对 RRF 分数套 dense 或重排阈值；此时不保证拒绝不相关候选。无可编码查询词时使用 `mode=dense,degraded=true`。任何一路隔离验证失败都拒绝请求。总链路仍受 3 秒预算约束。
 
 `lexical-v1` 编码与 Java 共用如下协议（固定测试向量在 `tests/fixtures/lexical-v1.json`）：
 

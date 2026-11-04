@@ -110,6 +110,7 @@ python3 -m evaluation.live_compare
 | `RAG_ENGINE_EMBEDDING_MODEL` | 可选，默认 `text-embedding-v4`；摄取与查询共用 |
 | `RAG_ENGINE_EMBEDDING_DIMENSION` | 可选，默认 `1024`；临时集合与模型维度一致 |
 | `RAG_ENGINE_RERANK_MODEL` | 可选，默认 `qwen3-rerank` |
+| `RAG_ENGINE_RERANK_SCORE_THRESHOLD` | 可选，默认 `0.2`；两种模式使用同一 rerank 相关度阈值，实值记录到报告 |
 
 不需要现有引擎服务的 `RAG_ENGINE_API_KEY`；脚本不监听端口。既有 `RAG_ENGINE_COLLECTION` 不会被采用，临时名称只由脚本生成且必须匹配 `rag_eval_<32位随机十六进制>`，没有指定任意 collection 的命令参数。不会访问、修改或删除 `ai_chat_files`，也不调整 Nacos。
 
@@ -133,6 +134,8 @@ engine/.venv/bin/python -m evaluation.live_compare --apply \
 报告区分 `status=completed`（比较已执行）和 `acceptance.passed`（门禁通过）。其中包含两组 Recall@k / MRR@k / nDCG@k、全部请求 p50/p95、正向漏召回、负向误召回、泄漏、被引擎拒绝的作用域错误、3 秒超时、rerank 降级，以及 hybrid 减 dense 的指标差值。成功返回的空集、错误和缺失结果分别统计。默认门禁要求完整结果、无泄漏、来源已知、负向题正确为空、没有降级、实际 mode 正确、hybrid 三项排序指标不退步以及清理成功；它不会把 8 道负向题的误召回包装成通过。
 
 报告保留语料、问题集、引擎源码和 lockfile SHA-256、Git HEAD、依赖版本、模型和参数。工作树未提交时以源码哈希补足 Git HEAD。单次 60 题合成结果只适合作为回归证据，即使 hybrid 分数更高，也不能据此证明真实用户质量提升或统计显著性；性能结论同样不是并发压测。
+
+`predictions.<mode>[].sources[].score` 保留每个实际返回命中的数值分数；`results.<mode>.topScoreDistribution.groups` 分正向、全部负向、无答案、租户隔离四组统计第一条命中的 min / p05 / p25 / p50 / p75 / p95 / max / mean。非降级与降级结果分开，避免把 dense/RRF 分数和 rerank 相关度放在同一尺度上。统计的是**引擎过滤后实际返回的首条分数**，不是过滤前候选最高分；空召回、失败和旧报告缺分数分别计数，不以 0 填补，不据此自动调阈值、改标签或放宽门禁。保留失败基线再重跑新配置，才能比较修复前后。
 
 退出码：0 为预览完成或真实门禁通过；1 为已执行但结果、清理或门禁失败；2 为参数、依赖、环境或输出准备错误。完整诊断看脱敏报告，不需要回显密钥。
 

@@ -91,13 +91,17 @@ async def retrieve(
                 or index in seen_indices
                 or type(score) not in {float, int}
                 or not math.isfinite(score)
+                or not 0 <= score <= 1
             ):
                 raise ValueError("invalid rerank")
             ordered.append(Hit(id=hits[index].id, score=float(score), payload=hits[index].payload))
             seen_indices.add(index)
         if len(ordered) != min(request.topK, len(hits)):
             raise ValueError("incomplete rerank")
-        hits = ordered
+        # 先校验完整 top_n 响应，再过滤相关性；过滤为空是有效的“无答案”，不是重排失败。
+        # dense/TF-IDF/RRF 分数不在同一尺度，不能给降级候选套用此阈值。
+        hits = [hit for hit in ordered if hit.score >= settings.rerank_score_threshold]
+        hits.sort(key=lambda item: item.score, reverse=True)
     except (TimeoutError, httpx.HTTPError, EngineError, KeyError, TypeError, ValueError):
         degraded = True
         hits.sort(key=lambda item: item.score, reverse=True)

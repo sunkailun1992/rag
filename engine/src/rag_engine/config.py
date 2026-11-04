@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-v4"
     embedding_dimension: int = Field(default=1024, ge=1, le=8192)
     rerank_model: str = "qwen3-rerank"
+    # 只作用于成功重排的 relevance_score；与 dense 相似度、RRF 名次分数不同。
+    rerank_score_threshold: float = Field(default=0.5, ge=0, le=1, allow_inf_nan=False)
     # 只有 schema、完整回填及 Java 双写都已验收后才能启用。
     hybrid_enabled: bool = False
     ocr_url: str = ""
