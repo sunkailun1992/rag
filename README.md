@@ -27,7 +27,7 @@
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com:utils:1.5.1`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
+- 公共能力依赖 `com:utils:1.5.2`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
 - 个人与公司共用私有 Maven 地址，utils 分别使用 `com` 与 `com.kellen` group 隔离；Java 包名保持 `com.kellen.*`。
 - 测试框架统一使用 JUnit 5
 

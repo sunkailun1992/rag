@@ -1,6 +1,6 @@
 # Nacos 配置中心规范（Fleet 统一）
 
-> GitHub 个人环境现行覆盖：namespace 固定独立为 `github-dev/github-test/github-prod`；只使用 `GITHUB_NACOS_*` 引导变量，不回落公司 dev。通用模板与私有 CAS 发布见同级 `utils/ops/github-dev/README.md`。本轮不复制公司业务 dataId。
+> GitHub 个人环境现行覆盖：三个 profile 当前均使用个人 `github-dev`，统一由 `GITHUB_NACOS_DEV_NAMESPACE` 覆盖；Git 分支不切换环境；只使用 `GITHUB_NACOS_*` 引导变量，不回落公司 dev。通用模板与私有 CAS 发布见同级 `utils/ops/github-dev/README.md`。本轮不复制公司业务 dataId。
 
 > 本文件是**全 fleet 统一**的 Nacos 配置中心分层与拆分规范，各服务仓库内容一致。
 > 网关路由等服务专属约定见各自 `GATEWAY_CODING_SPEC.md` / `NACOS_CONFIG_SPEC.md` 的服务段，不与本规范冲突。
