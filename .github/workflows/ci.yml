@@ -120,6 +120,14 @@ jobs:
           context=engine
           if [ "${{ matrix.component }}" = ocr ]; then context=engine/ocr; fi
           docker build --platform linux/amd64 -t rag-${{ matrix.component }}:check "$context"
+      - name: Validate NAS Compose contract
+        if: matrix.component == 'engine'
+        run: |
+          cp engine/.env.example engine/.env
+          export RAG_ENGINE_IMAGE=rag-engine:check
+          export RAG_OCR_IMAGE=rag-ocr:check
+          export RAG_OCR_API_KEY="compose-validation-$(openssl rand -hex 16)"
+          docker compose -f engine/compose.nas.yaml config --quiet
       - name: Check bounded container with real parsers/models
         env:
           COMPONENT: ${{ matrix.component }}

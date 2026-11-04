@@ -1,0 +1,46 @@
+# 个人 NAS 部署：沿用已有 Qdrant/模型；OCR 仅按请求启动推理子进程。
+name: github-dev-rag
+services:
+  rag-engine:
+    # 使用通过 Linux 实测的 sha 标签或 digest，禁止 latest。
+    image: ${RAG_ENGINE_IMAGE:?Set a verified immutable engine image}
+    ports:
+      # NAS 填可由私有组网访问的本机接口；默认只允许 loopback。
+      - "${RAG_ENGINE_BIND_IP:-127.0.0.1}:8091:8091"
+    env_file: .env
+    environment:
+      RAG_ENGINE_OCR_URL: http://rag-ocr:8092
+      RAG_ENGINE_OCR_API_KEY: ${RAG_OCR_API_KEY:?Set the private OCR service key}
+      RAG_ENGINE_PARSE_WORKERS: "1"
+    mem_limit: 1536m
+    cpus: 1.0
+    pids_limit: 64
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [rag-egress, ocr-private]
+    restart: unless-stopped
+  rag-ocr:
+    image: ${RAG_OCR_IMAGE:?Set a verified immutable CPU OCR image}
+    # 不映射宿主端口，只接受同编排的引擎调用。
+    environment:
+      RAG_OCR_API_KEY: ${RAG_OCR_API_KEY:?Set the private OCR service key}
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 64
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [ocr-private]
+    restart: unless-stopped
+networks:
+  rag-egress: {}
+  ocr-private:
+    # OCR 镜像内置审核后的官方模型，无需访问公网下载权重。
+    internal: true

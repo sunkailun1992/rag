@@ -106,3 +106,11 @@ uv run --frozen pytest -q
 
 - [Qdrant 1.18 新增向量 schema](https://qdrant.tech/documentation/manage-data/collections/#update-vector-schema)
 - [Qdrant has_vector 过滤](https://qdrant.tech/documentation/search/filtering/#has-vector)
+
+## NAS 双容器部署
+
+使用 `compose.nas.yaml` 和 Git 外 `.env`，设置 `RAG_ENGINE_IMAGE` / `RAG_OCR_IMAGE` 为通过 CI 的 sha 标签或 digest、`RAG_ENGINE_BIND_IP` 为 NAS 的私有接口、两份不少于32字符的服务密钥。其余 `RAG_ENGINE_*` 按 `.env.example` 配置，尤其 collection/model/dimension 必须与 Java 完全一致。
+
+引擎上限1.5GiB/1CPU，OCR上限2GiB/2CPU；同时达到上限时合计3.5GiB。部署前复查 NAS 当前余量，至少另留2GiB给原有中间件及系统。OCR只在内部网络，权重已内置，不映射宿主端口、不访问公网；Java通过私有组网访问引擎。未配置外部TLS时依赖现有加密组网，不能做公网端口映射。
+
+顺序：验证两个镜像健康及真实PDF/图片 → 创建新collection或暂停writer后显式迁移旧库 → 开启Java sparse双写 → 核验索引完整 → 用真实合成题验收引擎 → 最后启用个人Nacos解析/检索开关。只有这一顺序的读回证据齐全才能称部署完成；CI通过不能代替NAS实际安装。保留旧Java检索可通过关闭引擎开关回退。
