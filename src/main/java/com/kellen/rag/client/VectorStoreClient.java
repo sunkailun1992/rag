@@ -20,6 +20,11 @@ public interface VectorStoreClient {
 
     List<StoredVectorPoint> scroll(Map<String, Object> exactFilter, int limit, boolean withVector);
 
+    default com.kellen.rag.model.VectorPointPage scrollPage(Map<String, Object> exactFilter,
+                                                            int limit, String offset) {
+        throw new UnsupportedOperationException("向量存储未实现分页查询");
+    }
+
     List<VectorSearchHit> search(float[] vector, Map<String, Object> exactFilter,
                                  int limit, double scoreThreshold);
 

@@ -4,7 +4,28 @@
 
 当前项目从现有 Java 微服务工程骨架（`report`）复制迁移而来，**不包含任何 report 业务代码**，也不包含 `user` 服务的用户、租户、角色、权限资源等业务类。当前已实现 XLSX / DOCX 结构化摄取、embedding、Qdrant 向量存储与检索、rerank 重排、文档幂等/版本、向量读回校验，以及可视化知识图谱投影；MCP 工具和 AI Registry 注册仍属后续阶段。
 
-代码分支使用 `main`（正式主干）、`test`（整合测试）、`preprod`（候选预发）与短功能分支。分支不自动改变运行 profile；完整功能进入远端 main 并核对后，按本任务授权清理本地与远程功能分支，保护未合、其他 worktree 占用及长期分支。细则见 [分支管理规范](docs/ai-coding/BRANCHING_SPEC.md)。
+个人仓库仅保留 `main` 长期分支；实施中的短功能分支交付后清理，不再创建 `test/preprod`。Git 分支不改变运行 profile 或个人 `github-dev` 命名空间。
+
+## Python 引擎演进
+
+本批 Java 版本为 `1.0.9`，新增同仓独立的 [`engine/`](engine/README.md)。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入及图谱；现有 HTTP 和 Dubbo 契约保持。
+
+- 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
+- `rag.engine.retrieval-enabled` 默认 false。开启后使用 Python 检索，失败不叠加旧查询；关闭可恢复 Java 检索。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
+- PDF/OCR 保存页码、区块、坐标与全部重复来源 metadata。解析有大小、页数、并发、CPU/内存和总时间限制；不支持任意 URL/文件路径输入。
+- [`evaluation/`](evaluation/README.md) 提供 60 题合成基准、28 篇通用技术语料和 Recall/MRR/nDCG/延迟评估器，不能代替真实样本质量验收。
+- Nacos 唯一模板仍在 `../utils/ops/github-dev/nacos/DEFAULT_GROUP/rag-spring.yaml`；新增两开关默认关闭。Java 引擎密钥与 Python 环境变量需一致，不能放在前端或公开 Git。
+
+完整范围、验收与回滚见 [改版手册](docs/rag-engine-upgrade.md)，Python 环境、接口契约与部署见 [引擎文档](engine/README.md)。轻量引擎与 OCR 模型分别部署；NAS 示例限制引擎 1.5 GiB，不包含 OCR 权重。
+
+本机验证（无 Nacos、无真实模型调用）：
+
+```sh
+./gradlew test bootJar
+(cd engine && uv sync --frozen && uv run --frozen pytest -q)
+python3 -m unittest discover -s evaluation/tests -q
+python3 scripts/verify-rag-engine.py
+```
 
 ## 启动入口
 
@@ -36,7 +57,7 @@
 `rag` 定位为 fleet / AI 中台的「知识检索」能力提供方。当前 `ai` 可通过 Dubbo RPC 调用 `rag` 获取检索上下文；后续如需被智能体动态发现，再以 **MCP 工具 + Nacos AI Registry** 形式暴露给 `ai-agent` 等调用方。
 
 - **检索**：输入查询 → embedding → Qdrant 向量检索 → 返回带出处的上下文片段（不替调用方叫模型、不下结论）。
-- **摄取**：当前接收 XLSX 和 DOCX；XLSX 按“工作表 + 完整表头 + 单行记录”切片，DOCX 按标题段落和表格行切片，再 embedding 并写入 Qdrant。摄取侧与查询侧固定使用同 embedding 模型、同维度。
+- **摄取**：当前默认接收 XLSX 和 DOCX；启用解析引擎后增加 PDF/PNG/JPEG；XLSX 按“工作表 + 完整表头 + 单行记录”切片，DOCX 按标题段落和表格行切片，再 embedding 并写入 Qdrant。摄取侧与查询侧固定使用同 embedding 模型、同维度。
 - **能力暴露**：当前先提供 `RagRetrievalRpcService` 和 `/api/rag/retrievals` HTTP 边界；后续再补 `knowledge_search` 等 MCP 工具 + Nacos AI Registry AgentCard 注册，供 fleet 内任意 agent 复用。
 - **知识库管理**：Qdrant payload 显式保存租户、知识库、文档版本、来源、文件/内容指纹和重复行位置。相同文件幂等，同编码新内容生成新版本；文档内语义相同且仅序号/行号不同的记录合并向量，但保留全部定位信息。
 - **知识图谱**：从活动向量切片确定性投影文档、工作表、记录和概念关系；图谱表是可重建派生索引，不让模型猜测关系，稳定节点/边编码便于后续迁移到 Neo4j。
@@ -58,7 +79,7 @@ traffic-governance.yaml
 security-auth.yaml
 swagger.yaml
 ai-model-secrets.yaml   # AI 模型供应商 API Key / base-url；真实密钥只放 Nacos
-rag.yaml                # rag 业务配置：RAG 检索参数、collection、topK、阈值等私有 @ConfigurationProperties
+rag-spring.yaml                # rag 业务配置：RAG 检索参数、collection、topK、阈值等私有 @ConfigurationProperties
 rag-spring.yaml         # rag Spring / 数据源 / Spring AI 模型 / 服务私有基础配置
 qdrant.yaml             # Qdrant 向量库连接，RAG 检索入口
 mybatis-plus.yaml

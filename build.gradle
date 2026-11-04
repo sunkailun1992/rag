@@ -12,7 +12,7 @@ plugins {
  * 项目基础信息
  */
 group = 'com'
-version = '1.0.8'
+version = '1.0.9'
 description = 'rag'
 
 /**
@@ -98,6 +98,18 @@ bootJar {
  */
 test {
     useJUnitPlatform()
+    // 真实 Python 进程由专用合同验证脚本启动，普通测试不依赖外部服务。
+    exclude '**/RagEngineLiveIntegrationTest.class'
+}
+
+tasks.register('engineContractTest', Test) {
+    description = 'Verify Java against a real local Python engine started by the contract script.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    include '**/RagEngineLiveIntegrationTest.class'
+    outputs.upToDateWhen { false }
 }
 
 /**

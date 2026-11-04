@@ -58,15 +58,23 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
         requireConfig();
         int collectionStatus = status(collectionUrl(), Map.of());
         if (collectionStatus == 404) {
-            put(collectionUrl(), Map.of(
+            Map<String, Object> schema = new LinkedHashMap<>(Map.of(
                     "vectors", Map.of(
                             "size", properties.getEmbeddingDimension(),
                             "distance", "Cosine"
                     ),
                     "on_disk_payload", true
-            ), Map.of(), 60);
+            ));
+            if (properties.isHybridWriteEnabled()) schema.put("sparse_vectors",
+                    Map.of(LexicalSparseVector.MODEL, Map.of("modifier", "idf")));
+            put(collectionUrl(), schema, Map.of(), 60);
         } else if (collectionStatus < 200 || collectionStatus >= 300) {
             throw ExternalServiceException.httpFailure("Qdrant", collectionStatus);
+        }
+        if (properties.isHybridWriteEnabled() && !get(collectionUrl(), Map.of()).path("result")
+                .path("config").path("params").path("sparse_vectors").path(LexicalSparseVector.MODEL)
+                .path("modifier").asText().equals("idf")) {
+            throw new IllegalStateException("混合索引尚未准备，请先执行显式 schema/回填迁移");
         }
         for (String field : KEYWORD_INDEX_FIELDS) {
             put(collectionUrl() + "/index?wait=true", Map.of(
@@ -84,7 +92,9 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
         List<Map<String, Object>> bodyPoints = points.stream().map(point -> {
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("id", point.id());
-            value.put("vector", point.vector());
+            value.put("vector", properties.isHybridWriteEnabled()
+                    ? Map.of("", point.vector(), LexicalSparseVector.MODEL,
+                            LexicalSparseVector.encode(String.valueOf(point.payload().get("content")))) : point.vector());
             value.put("payload", point.payload());
             return value;
         }).toList();
@@ -144,6 +154,32 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
     }
 
     @Override
+    public com.kellen.rag.model.VectorPointPage scrollPage(Map<String, Object> exactFilter,
+                                                          int limit, String offset) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("filter", filter(exactFilter));
+        request.put("limit", limit);
+        request.put("with_payload", true);
+        request.put("with_vector", false);
+        if (offset != null) request.put("offset", offset);
+        JsonNode result = post(collectionUrl() + "/points/scroll", request, Map.of(), 30).path("result");
+        if (!result.path("points").isArray() || result.path("points").size() > limit) {
+            throw new IllegalStateException("切片上游响应超过分页范围");
+        }
+        List<StoredVectorPoint> points = new ArrayList<>();
+        for (JsonNode point : result.path("points")) {
+            points.add(new StoredVectorPoint(point.path("id").asText(),
+                    objectMapper.convertValue(point.path("payload"), new TypeReference<>() { }), 0));
+        }
+        JsonNode next = result.path("next_page_offset");
+        if (offset != null && offset.equals(next.asText())) {
+            throw new IllegalStateException("切片上游游标未前进");
+        }
+        return new com.kellen.rag.model.VectorPointPage(List.copyOf(points),
+                next.isMissingNode() || next.isNull() ? null : next.asText());
+    }
+
+    @Override
     public void setPayload(Map<String, Object> exactFilter, Map<String, Object> payload) {
         post(collectionUrl() + "/points/payload?wait=true", Map.of(
                 "payload", payload,
@@ -175,7 +211,7 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
             return vector.size();
         }
         if (vector.isObject()) {
-            JsonNode first = vector.values().stream().findFirst().orElse(null);
+            JsonNode first = vector.get("");
             return first != null && first.isArray() ? first.size() : 0;
         }
         return 0;

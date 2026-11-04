@@ -1,0 +1,25 @@
+# Java RAG 的轻量解析/检索引擎，不包含 OCR 模型、Qdrant 或任何业务数据库。
+services:
+  rag-engine:
+    build: .
+    # 与 Java 版本分开管理；生产部署应使用实际构建的不可变镜像标签。
+    image: kellen-rag-engine:0.1.0
+    # 默认仅本机可访问；跨主机调用请配置内网反向代理/TLS 和防火墙。
+    ports:
+      - "127.0.0.1:8091:8091"
+    # 凭据从 Git 外注入，必须至少 32 字符；不能填入本文件。
+    env_file: .env
+    # 低资源 NAS 限制总内存；重型 OCR 服务单独配置，绝不在此容器预加载模型。
+    mem_limit: 1536m
+    # 限制父服务和解析子进程的合计 CPU。
+    cpus: 1.0
+    # 防止解析触发无限进程增长。
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

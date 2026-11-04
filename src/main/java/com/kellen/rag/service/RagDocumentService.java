@@ -16,6 +16,8 @@ public interface RagDocumentService {
 
     List<RagDocumentVO> list(String knowledgeBase);
 
+    com.kellen.rag.entity.vo.RagChunkPageVO chunks(String documentId, int limit, String cursor);
+
     RagDocumentValidationVO validate(String documentId);
 
     boolean deactivate(String documentId);

@@ -1,7 +1,8 @@
-# Report service CI guards the executable part of the AI coding standard.
+# RAG Java 与 Python 引擎共同验证。
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -64,5 +65,92 @@ jobs:
       - name: Test
         run: ./gradlew test
 
+      - name: Set up uv for cross-language contract
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+          python-version: "3.12"
+
+      - name: Install locked engine dependencies
+        working-directory: engine
+        run: uv sync --frozen
+
+      - name: Verify Java against real Python engine
+        run: python3 scripts/verify-rag-engine.py
+
       - name: Secret warning scan
         run: bash scripts/check-secrets.sh
+
+  engine-evaluation:
+    name: Python Engine and Retrieval Evaluation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+          python-version: "3.12"
+      - name: Install locked engine dependencies
+        working-directory: engine
+        run: uv sync --frozen
+      - name: Engine tests and static checks
+        working-directory: engine
+        run: |
+          uv run --frozen ruff check src tests scripts
+          uv run --frozen ruff format --check src tests scripts
+          uv run --frozen pytest -q
+      - name: Evaluation regressions
+        run: python3 -m unittest discover -s evaluation/tests -q
+
+  container-images:
+    name: Build, verify, and publish NAS image
+    needs: [build-test-security, engine-evaluation]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        component: [engine, ocr]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build immutable Linux image
+        run: |
+          context=engine
+          if [ "${{ matrix.component }}" = ocr ]; then context=engine/ocr; fi
+          docker build --platform linux/amd64 -t rag-${{ matrix.component }}:check "$context"
+      - name: Check bounded container with real parsers/models
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          key=$(openssl rand -hex 32)
+          echo "::add-mask::$key"
+          if [ "$COMPONENT" = ocr ]; then
+            docker run -d --name acceptance --memory=2g --cpus=2 --pids-limit=64 --read-only --tmpfs /tmp:rw,size=256m,mode=1777 -e RAG_OCR_API_KEY="$key" rag-ocr:check
+            docker exec acceptance python scripts/acceptance.py --url http://127.0.0.1:8092 --output /tmp/acceptance.json
+          else
+            docker run -d --name acceptance --memory=1536m --cpus=1 --pids-limit=64 --read-only --tmpfs /tmp:rw,size=32m,mode=1777 -e RAG_ENGINE_API_KEY="$key" rag-engine:check
+            docker exec acceptance python scripts/container_smoke.py
+          fi
+          docker inspect acceptance --format 'OOMKilled={{.State.OOMKilled}} Memory={{.HostConfig.Memory}} NanoCpus={{.HostConfig.NanoCpus}}'
+          test "$(docker inspect acceptance --format '{{.State.OOMKilled}}')" = false
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified immutable image
+        if: github.event_name != 'pull_request'
+        env:
+          COMPONENT: ${{ matrix.component }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/rag-$COMPONENT:sha-$SOURCE_SHA"
+          docker tag "rag-$COMPONENT:check" "$image"
+          docker push "$image"
+      - name: Container diagnostics
+        if: failure()
+        run: docker logs --tail 100 acceptance || true

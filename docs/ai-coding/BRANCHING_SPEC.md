@@ -1,5 +1,6 @@
 # 分支管理规范
 
+> 个人 GitHub 当前仅保留 main 长期分支；下文 test/preprod 的通用流程不适用于本仓库，不得据此重建这两条分支。短功能分支验证交付后按授权清理。
 本项目使用 `main`、`test`、`preprod` 三个长期分支与短功能分支。Git 集成、CI、制品发布、环境部署和实际验收分别取证；创建或合并分支不会自动切换 Spring profile 或 Nacos namespace。
 
 ## 长期分支与环境边界

@@ -23,7 +23,8 @@ class DefaultRagRetrievalServiceTest {
     @Test
     void shouldRejectMissingTenantWithoutCallingExternalServices() {
         DefaultRagRetrievalService service = new DefaultRagRetrievalService(
-                new RagVectorProperties(), new NoopEmbeddingClient(), new NoopVectorStoreClient(), new NoopRerankClient());
+                new RagVectorProperties(), new NoopEmbeddingClient(), new NoopVectorStoreClient(), new NoopRerankClient(),
+                org.mockito.Mockito.mock(com.kellen.rag.client.RagEngineClient.class));
         RagRetrievalRpcRequest request = new RagRetrievalRpcRequest();
         request.setQuery("业务分析需要参考什么知识");
 
@@ -39,7 +40,8 @@ class DefaultRagRetrievalServiceTest {
     @Test
     void shouldRejectBlankQuery() {
         DefaultRagRetrievalService service = new DefaultRagRetrievalService(
-                new RagVectorProperties(), new NoopEmbeddingClient(), new NoopVectorStoreClient(), new NoopRerankClient());
+                new RagVectorProperties(), new NoopEmbeddingClient(), new NoopVectorStoreClient(), new NoopRerankClient(),
+                org.mockito.Mockito.mock(com.kellen.rag.client.RagEngineClient.class));
         RagRetrievalRpcDTO result = service.retrieve(new RagRetrievalRpcRequest());
 
         assertFalse(result.isMatched());

@@ -1,0 +1,610 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RAG Engine Internal API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/parses": {
+      "post": {
+        "summary": "Parses",
+        "operationId": "parses_v1_parses_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParseResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "description": "来自 Java 已验证身份的当前租户，不能使用前端任意传值。",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/retrievals": {
+      "post": {
+        "summary": "Retrievals",
+        "operationId": "retrievals_v1_retrievals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrievalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrievalResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "description": "来自 Java 已验证身份的当前租户，不能使用前端任意传值。",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Chunk": {
+        "properties": {
+          "chunkType": {
+            "type": "string",
+            "title": "Chunktype"
+          },
+          "sectionPath": {
+            "type": "string",
+            "title": "Sectionpath"
+          },
+          "locator": {
+            "type": "string",
+            "title": "Locator"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "chunkType",
+          "sectionPath",
+          "locator",
+          "content",
+          "metadata"
+        ],
+        "title": "Chunk"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Hit": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "score",
+          "payload"
+        ],
+        "title": "Hit"
+      },
+      "ParseRequest": {
+        "properties": {
+          "sourceName": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Sourcename"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Title",
+            "default": ""
+          },
+          "contentBase64": {
+            "type": "string",
+            "maxLength": 27962028,
+            "minLength": 4,
+            "title": "Contentbase64"
+          },
+          "maxChunkCharacters": {
+            "type": "integer",
+            "maximum": 6000.0,
+            "minimum": 256.0,
+            "title": "Maxchunkcharacters",
+            "default": 6000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sourceName",
+          "contentBase64"
+        ],
+        "title": "ParseRequest"
+      },
+      "ParseResponse": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "sourceName": {
+            "type": "string",
+            "title": "Sourcename"
+          },
+          "sourceType": {
+            "type": "string",
+            "title": "Sourcetype"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/Chunk"
+            },
+            "type": "array",
+            "title": "Chunks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "sourceName",
+          "sourceType",
+          "chunks"
+        ],
+        "title": "ParseResponse"
+      },
+      "RetrievalRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Query"
+          },
+          "knowledgeBase": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Knowledgebase"
+          },
+          "topK": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Topk",
+            "default": 6
+          },
+          "candidateCount": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Candidatecount",
+            "default": 30
+          },
+          "similarityThreshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Similaritythreshold",
+            "default": 0.2
+          },
+          "maxContextCharacters": {
+            "type": "integer",
+            "maximum": 30000.0,
+            "minimum": 1000.0,
+            "title": "Maxcontextcharacters",
+            "default": 12000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "query",
+          "knowledgeBase"
+        ],
+        "title": "RetrievalRequest"
+      },
+      "RetrievalResponse": {
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/Hit"
+            },
+            "type": "array",
+            "title": "Hits"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "dense",
+              "hybrid"
+            ],
+            "title": "Mode",
+            "description": "实际使用的召回模式；hybrid 为完整 sparse 索引与 dense 经 RRF 融合。",
+            "default": "dense"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hits"
+        ],
+        "title": "RetrievalResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "EngineError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "ServiceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "仅 Java 门面持有的服务凭据，不接受用户 JWT。"
+      }
+    }
+  }
+}

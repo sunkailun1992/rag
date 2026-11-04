@@ -11,9 +11,9 @@
 
 ## 通用工程与 Git 交付约束
 
-- 当前长期分支为 `main`、`test`、`preprod`，分别承担正式主干、整合测试和候选预发；它们不自动决定 profile/namespace。个人 dev 入口、`github-dev` 与公共库 `com` 坐标保持，不能复制公司环境或业务分支规则覆盖。
+- 个人 GitHub 仅保留 `main` 长期分支，不再创建 `test/preprod`；短功能分支交付后清理。Git 分支不自动决定 profile/namespace。个人 dev 入口、`github-dev` 与公共库 `com` 坐标保持，不能复制公司环境或业务分支规则覆盖。
 - 修改前先核仓库、HEAD、dirty、worktree 和其他会话，再 fetch；普通新目标从最新 origin/main 建短分支，同一任务续作和用户明确基线按现有授权处理。完整功能与必需跨仓配套一起验证交付。
-- 本任务已授权合 main 并清理时，完整功能进入远端 main 且包含关系读回通过后清理本地和远程功能分支；只进 test/preprod、未合、被其他 worktree 使用或仍有唯一工作时保留。保护三个长期分支，不强推，不用强删绕过检查。细则见 `docs/ai-coding/BRANCHING_SPEC.md`。
+- 本任务已授权合 main 并清理时，完整功能进入远端 main 且包含关系读回通过后清理本地和远程功能分支；只进 test/preprod、未合、被其他 worktree 使用或仍有唯一工作时保留。保护 main 和未交付工作，不强推，不用强删绕过检查。细则见 `docs/ai-coding/BRANCHING_SPEC.md`。
 - 高风险变更必须有独立风险验证，不能只依赖实现者的唯一自证测试；Review 可按需补充，不增加已授权提交/合并/推送的人工批准门禁。纯文档运行差异、路径和凭据检查，不机械重跑 Java 测试。
 - 修改版本前读 `docs/ai-coding/VERSIONING_SPEC.md`：MINOR/PATCH 各为 0–9，`1.2.9 -> 1.3.0`、`1.9.9 -> 2.0.0`；先核远端、tag、在途分支和已发布制品占用，同批只升一次，纯规范不升业务版本，不覆盖旧 tag/同版制品。
 - Git 集成、CI、远端制品、部署和实际验收分别取证；当前任务已给出的授权持续有效，未覆盖的外部发布动作仍需明确授权。
@@ -22,16 +22,17 @@
 
 - 项目名称：`rag`
 - 项目类型：RAG 知识检索服务后端；为 fleet / AI 中台提供「知识检索」能力，以 **MCP 工具 + Nacos AI Registry** 形式被智能体（如 `ai-agent` 及后续新中台 agent）发现并调用。
-- 技术栈：Java 17、Spring Boot 4、（Phase 2 引入）Spring AI 2 + Qdrant 向量库、Spring Cloud Alibaba、Nacos、Dubbo、MyBatis-Plus、Gradle、`com:utils`、`com:rpc-api`
-- Utils 制品隔离：本 GitHub 个人项目固定使用 `com:utils:1.5.1`；公司项目使用 `com.kellen:utils`。二者共用私有 Maven 地址，以 group 区分制品；Java 包名 `com.kellen.*` 不随 Maven group 改动。
+- 技术栈：Java 17、Spring Boot 4、Qdrant REST 向量库、独立 Python 3.12 引擎（FastAPI / LlamaIndex / pypdf）、Spring Cloud Alibaba、Nacos、Dubbo、MyBatis-Plus、Gradle、`com:utils`、`com:rpc-api`
+- Utils 制品隔离：本 GitHub 个人项目固定使用 `com:utils:1.5.2`；公司项目使用 `com.kellen:utils`。二者共用私有 Maven 地址，以 group 区分制品；Java 包名 `com.kellen.*` 不随 Maven group 改动。
 - 同级依赖：`../rpc-api` 提供跨服务 RPC 接口和 DTO 契约；`../utils` 提供公共响应、认证上下文、租户、多数据源和基础工具；`../gateway` 负责路由；`../ai-agent` 是当前主要 MCP / AI Registry 消费方
-- 当前状态：从现有 Java 微服务工程骨架（`report`）复制迁移而来，只保留基础工程、配置入口、公共基础设施 DDL、CI、脚本和 AI 编码规范；**不携带任何 report 业务代码**。RAG 业务（检索、摄取、向量库、MCP 工具、AI Registry 注册）尚未实现，属 Phase 2。
+- 当前状态：已实现 XLSX/DOCX 结构化摄取、embedding、Qdrant 检索、rerank、版本/幂等、读回校验及图谱。本批增加独立 Python 解析/检索引擎、PDF/OCR 适配和评估基准；开关默认关闭。混合检索已实现 LlamaIndex dense/sparse RRF 与显式迁移，必须实际验收后启用；MCP/AI Registry、查询改写和异步摄取仍未实施，不能按文件或依赖存在宣称已启用。
+- 引擎改造入口：先读 `docs/rag-engine-upgrade.md`、`engine/README.md`、`engine/openapi.json` 与 `evaluation/README.md`；不得绕过 Java 权限门面直接将 Python API 暴露给前端。
 - 核心风险：检索结果污染模型上下文或越权读取知识、医疗/专业知识来源不可信、embedding 模型与维度在「摄取」与「查询」两侧不一致、向量库连接与降级、敏感数据（如患者画像）归属与合规、MCP / A2A 契约不稳
 
 ## 与现有 report 骨架的差异说明（重要）
 
 - 本服务由 `report` 工程骨架复制而来。**通用规范**（注释风格、设计模式分层、测试分层、分支、版本、RPC、utils、Nacos 配置）直接适用，无需改动。
-- `docs/ai-coding` 中的**深度业务规范**（`SECURITY_CODING_SPEC.md`、`AI_DIRECTORY_STRUCTURE_GUIDE.md`、`PROJECT_CODING_SPEC.md`、`AI_DESIGN_PATTERN_GUIDE.md` 等）目前仍**保留 report 的业务示例**（报告生成/导出/审核、`/report/manage` 接口等）。这些是继承自骨架的占位示例，**将随 Phase 2 rag 业务实现逐步细化为 RAG 领域**（知识库、文档、切片、embedding、检索、MCP）；在 RAG 业务落地前，不要把这些 report 示例当作 rag 的真实业务规则。
+- `docs/ai-coding` 中的**深度业务规范**（`SECURITY_CODING_SPEC.md`、`AI_DIRECTORY_STRUCTURE_GUIDE.md`、`PROJECT_CODING_SPEC.md`、`AI_DESIGN_PATTERN_GUIDE.md` 等）目前仍**保留 report 的业务示例**（报告生成/导出/审核、`/report/manage` 接口等）。这些是继承自骨架的占位示例，**将随 Phase 2 rag 业务实现逐步细化为 RAG 领域**（知识库、文档、切片、embedding、检索、MCP）；不要把这些历史 report 示例当作 rag 的真实业务规则；实现事实以 README、源码与测试为准。
 
 ## 修改前阅读顺序
 
@@ -58,7 +59,7 @@
 ## 项目边界
 
 - `rag` 是**知识检索能力提供方**：输入查询，输出**带出处的检索上下文片段**。是否调用模型、是否下结论、是否保存会话由调用方（agent）负责，`rag` 不替调用方叫模型、不替调用方下结论。
-- `rag` 以 **MCP 工具（如 `knowledge_search`）+ Nacos AI Registry AgentCard** 暴露能力；消费方通过 Nacos 发现，不硬编码地址。
+- 当前 `rag` 通过 HTTP 与 Dubbo 暴露能力；MCP 工具与 Nacos AI Registry AgentCard 属后续能力，不得按历史规划推定已实现。
 - 向量库统一用 **Qdrant**；**摄取侧与查询侧必须使用同一 embedding 模型 + 同一维度**，维度必须等于 collection 向量维，变更即需重建 collection 并全量重嵌入。
 - 摄取（解析/切片/embedding/写库）与检索（查询/向量检索/拼接）职责分离；摄取是离线/批量，未来可能外移（如 Python），检索在请求链路上。
 - 敏感数据（如患者画像）归属与合规留在调用方控制面；`rag` 默认只承载可共享的知识，不持有患者主身份。

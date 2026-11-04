@@ -75,6 +75,27 @@ class DefaultRagDocumentServiceTest {
         verify(graphService).syncDocument("document-1");
     }
 
+    @Test
+    void shouldScopeEveryChunkPageAndOmitRawGovernanceMetadata() {
+        VectorStoreClient vectors = mock(VectorStoreClient.class);
+        when(vectors.collectionExists()).thenReturn(true);
+        var payload = new java.util.LinkedHashMap<String,Object>();
+        payload.put("tenant_id", "tenant-test"); payload.put("document_id", "doc-1");
+        payload.put("chunk_id", "chunk-1"); payload.put("chunk_index", 0); payload.put("content", "安全文本");
+        payload.put("source_metadata", java.util.Map.of("page", 1, "secret", "must-not-return"));
+        when(vectors.scrollPage(anyMap(), org.mockito.ArgumentMatchers.eq(20), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new com.kellen.rag.model.VectorPointPage(java.util.List.of(
+                        new com.kellen.rag.model.StoredVectorPoint("id", payload, 0)), null));
+        TenantContextHolder.setTenantId("tenant-test");
+        var result = service(vectors, mock(RagKnowledgeGraphService.class)).chunks("doc-1",20,null);
+        org.junit.jupiter.api.Assertions.assertEquals(java.util.Map.of("page",1),result.items().get(0).sourceMetadata());
+        verify(vectors).scrollPage(java.util.Map.of("tenant_id","tenant-test","document_id","doc-1"),20,null);
+        assertThrows(IllegalArgumentException.class, () -> service(vectors, mock(RagKnowledgeGraphService.class)).chunks("doc-1",101,null));
+        assertThrows(IllegalArgumentException.class, () -> service(vectors, mock(RagKnowledgeGraphService.class)).chunks("doc-1",20,"invalid"));
+        payload.put("tenant_id","tenant-other");
+        assertThrows(IllegalStateException.class, () -> service(vectors, mock(RagKnowledgeGraphService.class)).chunks("doc-1",20,null));
+    }
+
     private DefaultRagDocumentService service(VectorStoreClient vectorStoreClient,
                                                RagKnowledgeGraphService graphService) {
         return new DefaultRagDocumentService(

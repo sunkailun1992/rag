@@ -37,7 +37,7 @@ public class RagDocumentController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "上传知识文档", description = "支持 xlsx 表格和 docx 结构化文档；相同文件指纹幂等，同文档编码新内容生成新版本")
+    @Operation(summary = "上传知识文档", description = "支持 xlsx/docx；启用引擎后支持 PDF/PNG/JPEG，扫描件需要 OCR 服务；相同文件指纹幂等，同文档编码新内容生成新版本")
     public ApiResponse<RagDocumentIngestionVO> upload(
             @RequestPart("file") MultipartFile file,
             @RequestParam(required = false) String knowledgeBase,
@@ -56,6 +56,14 @@ public class RagDocumentController {
     @Operation(summary = "校验文档向量", description = "从 Qdrant 读回全部点，检查数量、内容 SHA-256 和向量维度")
     public ApiResponse<RagDocumentValidationVO> validate(@PathVariable String documentId) {
         return ApiResponse.success(ragDocumentService.validate(documentId));
+    }
+
+    @GetMapping("/{documentId}/chunks")
+    @Operation(summary = "分页查看文档切片", description = "仅当前租户；每页最多100条，不返回向量或原始存储字段")
+    public ApiResponse<com.kellen.rag.entity.vo.RagChunkPageVO> chunks(
+            @PathVariable String documentId, @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(required = false) String cursor) {
+        return ApiResponse.success(ragDocumentService.chunks(documentId, limit, cursor));
     }
 
     @DeleteMapping("/{documentId}")

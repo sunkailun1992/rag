@@ -7,7 +7,7 @@ import java.util.List;
  *
  * @param title       文档标题
  * @param sourceName  安全化后的源文件名
- * @param sourceType  xlsx、docx 或 txt
+ * @param sourceType  xlsx、docx、pdf、png、jpg 或 jpeg
  * @param chunks      结构化切片
  */
 public record ParsedKnowledgeDocument(String title, String sourceName, String sourceType,

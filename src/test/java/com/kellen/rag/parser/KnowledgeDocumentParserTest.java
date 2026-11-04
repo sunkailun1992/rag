@@ -17,7 +17,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class KnowledgeDocumentParserTest {
 
     private final KnowledgeDocumentParser parser =
-            new KnowledgeDocumentParser(new RagVectorProperties());
+            new KnowledgeDocumentParser(new RagVectorProperties(),
+                    org.mockito.Mockito.mock(com.kellen.rag.client.RagEngineClient.class));
 
     @Test
     void shouldRepeatCompleteHeaderSemanticsForEveryDataRow() throws Exception {

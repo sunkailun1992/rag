@@ -46,3 +46,14 @@ out/
 
 # 本机私有 dev 连接配置，不能进入 Git。
 /config/application-dev.properties
+
+# Python 引擎与评估的本机构建产物和私有配置。
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.env
+.env.*
+!.env.example

@@ -95,8 +95,10 @@ public class DefaultRagDocumentService implements RagDocumentService {
             LinkedHashMap<String, ChunkAccumulator> uniqueChunks = new LinkedHashMap<>();
             for (KnowledgeChunkDraft chunk : parsed.chunks()) {
                 String contentHash = sha256(normalizeForHash(chunk.content()).getBytes(StandardCharsets.UTF_8));
-                uniqueChunks.computeIfAbsent(contentHash, ignored -> new ChunkAccumulator(chunk))
-                        .locators().add(chunk.locator());
+                ChunkAccumulator accumulator = uniqueChunks.computeIfAbsent(contentHash,
+                        ignored -> new ChunkAccumulator(chunk));
+                accumulator.locators().add(chunk.locator());
+                accumulator.metadata().add(chunk.metadata());
             }
             int duplicateCount = parsed.chunks().size() - uniqueChunks.size();
             List<Map.Entry<String, ChunkAccumulator>> entries = new ArrayList<>(uniqueChunks.entrySet());
@@ -128,12 +130,18 @@ public class DefaultRagDocumentService implements RagDocumentService {
                 payload.put("chunk_type", chunk.chunkType());
                 payload.put("section_path", chunk.sectionPath());
                 payload.put("source_locator", chunk.locator());
+                // 独立命名空间保存解析器元数据，不能覆盖 tenant_id、状态或版本。
+                payload.put("source_metadata", chunk.metadata());
+                payload.put("duplicate_source_metadata", entry.getValue().metadata());
                 payload.put("duplicate_locators", entry.getValue().locators());
                 payload.put("duplicate_occurrence_count", entry.getValue().locators().size());
                 payload.put("content", chunk.content());
                 payload.put("content_sha256", entry.getKey());
                 payload.put("embedding_model", properties.getEmbeddingModel());
                 payload.put("embedding_dimension", properties.getEmbeddingDimension());
+                if (properties.isHybridWriteEnabled()) {
+                    payload.put("sparse_model", com.kellen.rag.client.LexicalSparseVector.MODEL);
+                }
                 payload.put("document_chunk_count", entries.size());
                 payload.put("duplicate_chunk_count", duplicateCount);
                 payload.put("ingested_at", ingestedAt);
@@ -204,6 +212,51 @@ public class DefaultRagDocumentService implements RagDocumentService {
     @Override
     public RagDocumentValidationVO validate(String documentId) {
         return validateInternal(requireTenant(), requiredId(documentId));
+    }
+
+    @Override
+    public com.kellen.rag.entity.vo.RagChunkPageVO chunks(String documentId, int limit, String cursor) {
+        String tenant = requireTenant();
+        String id = requiredId(documentId);
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("切片每页数量必须在1到100之间");
+        String offset = null;
+        if (StringUtils.hasText(cursor)) {
+            try {
+                if (cursor.length() > 256) throw new IllegalArgumentException();
+                String decoded = new String(java.util.Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+                String[] parts = decoded.split("\\n", -1);
+                if (parts.length != 2 || !id.equals(parts[0])) throw new IllegalArgumentException();
+                offset = UUID.fromString(parts[1]).toString();
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("切片游标不合法");
+            }
+        }
+        if (!vectorStoreClient.collectionExists()) {
+            return new com.kellen.rag.entity.vo.RagChunkPageVO(id, List.of(), null);
+        }
+        // 每页都重新施加可信租户及文档过滤；游标不能改变可见范围。
+        var page = vectorStoreClient.scrollPage(filter(tenant, null, "document_id", id), limit, offset);
+        var chunks = page.points().stream().map(point -> {
+            Map<String, Object> payload = point.payload();
+            if (!tenant.equals(text(payload, "tenant_id")) || !id.equals(text(payload, "document_id"))) {
+                throw new IllegalStateException("切片读回范围不匹配");
+            }
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            if (payload.get("source_metadata") instanceof Map<?, ?> source) {
+                for (String key : List.of("page", "block_type", "bbox", "ocr_capabilities")) {
+                    if (source.get(key) != null) metadata.put(key, source.get(key));
+                }
+            }
+            List<String> duplicates = payload.get("duplicate_locators") instanceof List<?> locators
+                    ? locators.stream().filter(String.class::isInstance).map(String.class::cast).toList() : List.of();
+            return new com.kellen.rag.entity.vo.RagChunkPageVO.Chunk(text(payload, "chunk_id"),
+                    number(payload, "chunk_index"), text(payload, "chunk_type"), text(payload, "section_path"),
+                    text(payload, "source_name"), text(payload, "source_locator"), text(payload, "content"),
+                    Map.copyOf(metadata), duplicates);
+        }).toList();
+        String next = page.nextOffset() == null ? null : java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString((id + "\n" + UUID.fromString(page.nextOffset())).getBytes(StandardCharsets.UTF_8));
+        return new com.kellen.rag.entity.vo.RagChunkPageVO(id, chunks, next);
     }
 
     @Override
@@ -381,10 +434,11 @@ public class DefaultRagDocumentService implements RagDocumentService {
         return value instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(value));
     }
 
-    private record ChunkAccumulator(KnowledgeChunkDraft chunk, List<String> locators) {
+    private record ChunkAccumulator(KnowledgeChunkDraft chunk, List<String> locators,
+                                    List<Map<String, Object>> metadata) {
 
         private ChunkAccumulator(KnowledgeChunkDraft chunk) {
-            this(chunk, new ArrayList<>());
+            this(chunk, new ArrayList<>(), new ArrayList<>());
         }
     }
 }

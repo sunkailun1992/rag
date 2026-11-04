@@ -1,6 +1,9 @@
 package com.kellen.rag.service.impl;
 
 import com.kellen.rag.client.EmbeddingClient;
+import com.kellen.rag.client.RagEngineClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.kellen.rag.client.RerankClient;
 import com.kellen.rag.client.VectorStoreClient;
 import com.kellen.rag.config.RagVectorProperties;
@@ -28,6 +31,8 @@ import java.util.stream.Collectors;
 @Service
 public class DefaultRagRetrievalService implements RagRetrievalService {
 
+    private static final Logger log = LoggerFactory.getLogger(DefaultRagRetrievalService.class);
+    private final RagEngineClient engineClient;
     private final RagVectorProperties properties;
     private final EmbeddingClient embeddingClient;
     private final VectorStoreClient vectorStoreClient;
@@ -36,7 +41,8 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
     public DefaultRagRetrievalService(RagVectorProperties properties,
                                       EmbeddingClient embeddingClient,
                                       VectorStoreClient vectorStoreClient,
-                                      RerankClient rerankClient) {
+                                      RerankClient rerankClient, RagEngineClient engineClient) {
+        this.engineClient = engineClient;
         this.properties = properties;
         this.embeddingClient = embeddingClient;
         this.vectorStoreClient = vectorStoreClient;
@@ -71,33 +77,36 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
             response.setMessage("knowledge base code is invalid");
             return response;
         }
+        long started = System.nanoTime();
+        String mode = engineClient.isRetrievalEnabled() ? "engine" : "java";
         try {
-            vectorStoreClient.ensureCollection();
             int requestedTopK = request.getTopK() == null ? properties.getTopK() : request.getTopK();
             int topK = Math.min(Math.max(requestedTopK, 1), 20);
             int candidates = Math.max(topK, Math.min(properties.getCandidateCount(), 100));
             double threshold = request.getSimilarityThreshold() == null
                     ? properties.getSimilarityThreshold()
                     : Math.max(0D, request.getSimilarityThreshold());
-            float[] queryVector = embeddingClient.embedQuery(request.getQuery().trim());
-            List<VectorSearchHit> vectorHits = vectorStoreClient.search(queryVector, Map.of(
-                    "tenant_id", tenantId,
-                    "knowledge_base", knowledgeBase,
-                    "document_status", "ACTIVE"
-            ), candidates, threshold);
-            if (vectorHits.isEmpty()) {
-                response.setMessage("no knowledge matched");
-                return response;
+            int contextLimit = request.getMaxContextCharacters() == null
+                    ? properties.getMaxContextCharacters()
+                    : Math.min(Math.max(request.getMaxContextCharacters(), 1000), 30000);
+            List<VectorSearchHit> ordered;
+            if (engineClient.isRetrievalEnabled()) {
+                // 引擎失败不追加旧链路调用；避免叠加超时突破调用方的 5 秒预算。
+                ordered = engineClient.retrieve(request.getQuery().trim(), knowledgeBase, topK,
+                        candidates, threshold, contextLimit);
+            } else {
+                vectorStoreClient.ensureCollection();
+                float[] queryVector = embeddingClient.embedQuery(request.getQuery().trim());
+                List<VectorSearchHit> vectorHits = vectorStoreClient.search(queryVector, Map.of(
+                        "tenant_id", tenantId, "knowledge_base", knowledgeBase, "document_status", "ACTIVE"
+                ), candidates, threshold);
+                ordered = vectorHits.isEmpty() ? List.of()
+                        : rerank(request.getQuery().trim(), deduplicate(vectorHits), topK);
             }
-            List<VectorSearchHit> deduplicated = deduplicate(vectorHits);
-            List<VectorSearchHit> ordered = rerank(request.getQuery().trim(), deduplicated, topK);
             List<RagRetrievalChunkRpcDTO> chunks = ordered.stream()
                     .limit(topK)
                     .map(this::toChunk)
                     .toList();
-            int contextLimit = request.getMaxContextCharacters() == null
-                    ? properties.getMaxContextCharacters()
-                    : Math.min(Math.max(request.getMaxContextCharacters(), 1000), 30000);
             String context = buildContext(chunks, contextLimit);
             Set<String> sourceDocuments = chunks.stream()
                     .map(RagRetrievalChunkRpcDTO::getDocumentId)
@@ -107,8 +116,12 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
             response.setContext(context);
             response.setSourceCount(sourceDocuments.size());
             response.setMessage(chunks.isEmpty() ? "no knowledge matched" : "ok");
+            log.info("rag_retrieval mode={} matched={} chunks={} elapsed_ms={}", mode,
+                    response.isMatched(), chunks.size(), (System.nanoTime() - started) / 1_000_000);
             return response;
         } catch (RuntimeException exception) {
+            log.warn("rag_retrieval mode={} outcome=unavailable error_type={} elapsed_ms={}", mode,
+                    exception.getClass().getSimpleName(), (System.nanoTime() - started) / 1_000_000);
             response.setMessage("RAG retrieval is temporarily unavailable");
             return response;
         }
@@ -136,6 +149,7 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
                             hits.get(result.index()).id(), result.score(), hits.get(result.index()).payload()))
                     .toList();
         } catch (RuntimeException exception) {
+            log.warn("rag_rerank outcome=vector_fallback error_type={}", exception.getClass().getSimpleName());
             return hits.stream().sorted(Comparator.comparingDouble(VectorSearchHit::score).reversed()).toList();
         }
     }

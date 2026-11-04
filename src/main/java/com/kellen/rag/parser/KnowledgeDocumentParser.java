@@ -1,6 +1,8 @@
 package com.kellen.rag.parser;
 
 import com.kellen.rag.config.RagVectorProperties;
+import com.kellen.rag.client.RagEngineClient;
+import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.KnowledgeChunkDraft;
 import com.kellen.rag.model.ParsedKnowledgeDocument;
 import org.apache.poi.ss.usermodel.Cell;
@@ -31,7 +33,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
- * Office 知识文档解析器。
+ * 保持 Office 结构化规则，并将 PDF/图片交给有鉴权与资源限制的引擎。
  *
  * <p>XLSX 和 DOCX 表格按“表头 + 单行记录”切片，避免排班、量表、层级和措施失去列语义。
  * DOCX 正文按标题层级和段落切片；过长记录只按字段边界拆分，并为每个子片重复文档、
@@ -46,8 +48,10 @@ public class KnowledgeDocumentParser {
     private static final int MAX_FIELD_NAME_CHARACTERS = 40;
 
     private final RagVectorProperties properties;
+    private final RagEngineClient engineClient;
 
-    public KnowledgeDocumentParser(RagVectorProperties properties) {
+    public KnowledgeDocumentParser(RagVectorProperties properties, RagEngineClient engineClient) {
+        this.engineClient = engineClient;
         this.properties = properties;
     }
 
@@ -78,8 +82,11 @@ public class KnowledgeDocumentParser {
             if ("docx".equals(extension)) {
                 return parseWordDocument(title, sourceName, bytes);
             }
-            throw new IllegalArgumentException("RAG 知识库仅接收 xlsx 或 docx 文档");
-        } catch (IllegalArgumentException exception) {
+            if (List.of("pdf", "png", "jpg", "jpeg").contains(extension)) {
+                return engineClient.parse(sourceName, title, extension, bytes);
+            }
+            throw new IllegalArgumentException("RAG 知识库接收 xlsx、docx、pdf、png、jpg 或 jpeg 文档");
+        } catch (IllegalArgumentException | ExternalServiceException exception) {
             throw exception;
         } catch (Exception exception) {
             throw new IllegalArgumentException("文档结构无法解析，请检查文件是否损坏", exception);

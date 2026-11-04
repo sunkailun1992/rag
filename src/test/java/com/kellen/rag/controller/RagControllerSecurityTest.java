@@ -103,6 +103,21 @@ class RagControllerSecurityTest {
     }
 
     @Test
+    void shouldProtectChunkPreviewWithDocumentPermission() throws Exception {
+        mockMvc.perform(get("/api/rag/documents/doc-1/chunks"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("A0312"));
+        mockMvc.perform(get("/api/rag/documents/doc-1/chunks")
+                        .with(user("viewer").authorities(() -> "rag:retrieval:use")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(ragDocumentService);
+        when(ragDocumentService.chunks("doc-1",20,null)).thenReturn(
+                new com.kellen.rag.entity.vo.RagChunkPageVO("doc-1",List.of(),null));
+        mockMvc.perform(get("/api/rag/documents/doc-1/chunks")
+                        .with(user("admin").authorities(() -> "rag:document:manage")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.documentId").value("doc-1"));
+    }
+
+    @Test
     void shouldAllowRetrievalWithRagRetrievalPermission() throws Exception {
         when(ragRetrievalService.retrieve(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new RagRetrievalRpcDTO());
