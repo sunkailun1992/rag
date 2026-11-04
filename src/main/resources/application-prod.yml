@@ -1,8 +1,12 @@
 # GitHub prod 独立环境；禁止回落到公司 dev namespace。
 custom:
+  # 应用连接 Nacos 的 host:port，使用 SDK/API 端口；控制台端口不可代用，优先读取个人 dev 环境变量。
   nacos-ip: ${GITHUB_NACOS_DEV_SERVER_ADDR:${GITHUB_NACOS_SERVER_ADDR:172.16.1.70:8848}}
+  # 个人命名空间的真实 ID；三个 profile 当前都使用 github-dev，不按 Git 分支自动切换。
   namespace: ${GITHUB_NACOS_DEV_NAMESPACE:github-dev}
+  # Nacos 连接账号由本机私有引导配置或环境变量提供；现有开发回退值保持不变。
   nacos-username: ${GITHUB_NACOS_USERNAME:nacos}
+  # Nacos 连接密码由本机私有引导配置或环境变量提供；不把其他环境凭据写入仓库。
   nacos-password: ${GITHUB_NACOS_PASSWORD:nacos}
 
 spring:
@@ -10,18 +14,29 @@ spring:
     nacos:
       # 服务注册与发现配置，供网关、Dubbo、Admin 和运维观察当前实例。
       discovery:
+        # 复用本 profile 的 Nacos 应用连接地址，与配置加载/服务发现保持一致。
         server-addr: ${custom.nacos-ip}
+        # 复用个人 namespace ID，与本服务加载配置和注册发现使用同一隔离空间。
         namespace: ${custom.namespace}
+        # 复用 application.yml 的个人配置/发现分组；与 dataId 导入的默认 group 一致。
         group: ${custom.nacos-group}
+        # 复用本 profile 的 Nacos 连接账号，避免配置中心和服务发现使用不同身份。
         username: ${custom.nacos-username}
+        # 复用本 profile 的 Nacos 连接密码，不在多个连接块复制凭据。
         password: ${custom.nacos-password}
       # 配置中心入口，负责加载本 profile spring.config.import 中列出的远程 YAML。
       config:
+        # 复用本 profile 的 Nacos 应用连接地址，与配置加载/服务发现保持一致。
         server-addr: ${custom.nacos-ip}
+        # 复用个人 namespace ID，与本服务加载配置和注册发现使用同一隔离空间。
         namespace: ${custom.namespace}
+        # 复用 application.yml 的个人配置/发现分组；与 dataId 导入的默认 group 一致。
         group: ${custom.nacos-group}
+        # 复用本 profile 的 Nacos 连接账号，避免配置中心和服务发现使用不同身份。
         username: ${custom.nacos-username}
+        # 复用本 profile 的 Nacos 连接密码，不在多个连接块复制凭据。
         password: ${custom.nacos-password}
+        # 默认配置格式为 YAML；显式 import 的 dataId 文件名仍以导入清单为准。
         file-extension: yaml
   config:
     # import 必须和本 profile 的 Nacos 地址同文件；group 默认使用上面的 custom.nacos-group，只有跨 group 特例才显式写 group。
@@ -32,7 +47,9 @@ spring:
       - "optional:nacos:reuse-configuration.yaml?refreshEnabled=true"
       # traffic-governance.yaml：灰度、版本、流量治理等跨服务公共规则。
       - "optional:nacos:traffic-governance.yaml?refreshEnabled=true"
+      # actuator.yaml：管理端点访问令牌、暴露范围与健康详情策略。 必须存在；refreshEnabled=true 开启配置刷新。
       - "nacos:actuator.yaml?refreshEnabled=true"
+      # security-jwt.yaml：人员访问 JWT 的签名密钥与签发方。 必须存在；refreshEnabled=true 开启配置刷新。
       - "nacos:security-jwt.yaml?refreshEnabled=true"
       # security-auth.yaml：认证、鉴权、Token 和安全过滤公共配置。
       - "optional:nacos:security-auth.yaml?refreshEnabled=true"

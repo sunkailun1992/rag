@@ -59,3 +59,7 @@
 - [MySQL Reference Manual - Comments](https://dev.mysql.com/doc/refman/8.4/en/comments.html)
 - [Gradle Build Language Reference](https://docs.gradle.org/current/dsl/)
 - Robert C. Martin《Clean Code》第 4 章 Comments：注释是次优手段，优先让代码自解释；注释掉的代码应删除。
+
+## Nacos 配置注释
+
+Nacos 配置、模板和私有渲染结果必须按 [Nacos 注释与归类规范](NACOS_COMMENT_SPEC.md) 写明文件职责和每个可调参数的用途、单位、空值/开关影响；不适用“生成类配置一般不加注释”的例外。整理必须保值，并验证渲染与发布读回仍保留注释。
