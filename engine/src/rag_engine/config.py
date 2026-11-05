@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     neo4j_password: SecretStr = SecretStr("")
     neo4j_database: str = Field(default="neo4j", pattern=r"^[A-Za-z0-9_.-]{1,64}$")
     graph_model: str = Field(default="qwen-plus", min_length=1, max_length=128)
+    graph_extraction_workers: int = Field(default=1, ge=1, le=4)
     graph_queue_size: int = Field(default=2, ge=1, le=8)
     graph_build_timeout_seconds: float = Field(default=300, ge=1, le=1800)
     graph_query_timeout_seconds: float = Field(default=3, ge=0.1, le=10)

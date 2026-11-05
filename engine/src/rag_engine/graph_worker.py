@@ -8,7 +8,7 @@ import sys
 import httpx
 
 from rag_engine.config import Settings
-from rag_engine.errors import EngineError
+from rag_engine.errors import VALIDATION_REASONS, EngineError
 from rag_engine.graph_models import GraphBuildRequest
 from rag_engine.graph_sources import digest, read_active_sources, source_key
 
@@ -26,12 +26,12 @@ def source_text_node(source, tenant, kb, generation):
 
 def build(payload: dict) -> dict:
     from llama_index.core import PropertyGraphIndex
-    from llama_index.core.indices.property_graph import SimpleLLMPathExtractor
 
     from rag_engine.graph_extract import (
         EXTRACT_PROMPT,
         QwenGraphLLM,
         ScopedGraphTransform,
+        ValidatedSimpleLLMPathExtractor,
         graph_store,
         parse_triplets,
     )
@@ -64,17 +64,17 @@ def build(payload: dict) -> dict:
         timeout=settings.graph_llm_timeout_seconds,
         trust_env=False,
         follow_redirects=False,
-        limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
+        limits=httpx.Limits(max_connections=settings.graph_extraction_workers, max_keepalive_connections=0),
     )
     store = graph_store(settings)
     try:
         llm = QwenGraphLLM(settings=settings, client=client)
-        extractor = SimpleLLMPathExtractor(
+        extractor = ValidatedSimpleLLMPathExtractor(
             llm=llm,
             extract_prompt=EXTRACT_PROMPT,
             parse_fn=parse_triplets,
             max_paths_per_chunk=settings.graph_max_triplets_per_chunk,
-            num_workers=1,
+            num_workers=settings.graph_extraction_workers,
             raise_on_error=True,
         )
         PropertyGraphIndex(
@@ -155,7 +155,11 @@ def main():
             "GRAPH_REQUEST_TOO_LARGE",
         }
         code = str(error) if str(error) in allowed else "GRAPH_BUILD_FAILED"
-        print(json.dumps({"error": code}))
+        diagnostic = {"error": code}
+        reason = getattr(error, "reason", None)
+        if isinstance(reason, str) and reason in VALIDATION_REASONS:
+            diagnostic["reason"] = reason
+        print(json.dumps(diagnostic))
 
 
 if __name__ == "__main__":

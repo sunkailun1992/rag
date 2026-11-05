@@ -8,7 +8,7 @@ import os
 import sys
 import uuid
 
-from rag_engine.errors import EngineError
+from rag_engine.errors import VALIDATION_REASONS, EngineError
 from rag_engine.graph_models import ActiveGraphSource, GraphBuildRequest
 from rag_engine.graph_query import aggregate_graph
 from rag_engine.graph_repository import GraphRepository
@@ -38,6 +38,9 @@ async def run_worker(payload, settings, remaining: float):
             raise EngineError("GRAPH_BUILD_FAILED")
         result = json.loads(stdout)
         if "error" in result:
+            reason = result.get("reason")
+            if isinstance(reason, str) and reason in VALIDATION_REASONS:
+                logger.warning("rag_graph_validation_failed reason=%s", reason)
             raise EngineError(
                 result["error"]
                 if result["error"]
