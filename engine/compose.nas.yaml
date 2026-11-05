@@ -6,7 +6,8 @@ services:
     image: ${RAG_ENGINE_IMAGE:?Set a verified immutable engine image}
     ports:
       # NAS 填可由私有组网访问的本机接口；默认只允许 loopback。
-      - "${RAG_ENGINE_BIND_IP:-127.0.0.1}:8091:8091"
+      # 宿主默认 18091，避开 Seata 的 8091；容器内部仍监听 8091。
+      - "${RAG_ENGINE_BIND_IP:-127.0.0.1}:${RAG_ENGINE_HOST_PORT:-18091}:8091"
     env_file: .env
     environment:
       RAG_ENGINE_OCR_URL: http://rag-ocr:8092

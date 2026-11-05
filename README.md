@@ -8,7 +8,7 @@
 
 ## Python 引擎演进
 
-本批 Java 版本为 `1.0.9`，新增同仓独立的 [`engine/`](engine/README.md)。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入及图谱；现有 HTTP 和 Dubbo 契约保持。
+本批 Java 版本为 `1.1.0`，新增同仓独立的 [`engine/`](engine/README.md)。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入及图谱；现有 HTTP 和 Dubbo 契约保持。
 
 - 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
 - `rag.engine.retrieval-enabled` 默认 false。开启后使用 Python 检索，失败不叠加旧查询；关闭可恢复 Java 检索。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
@@ -17,6 +17,8 @@
 - Nacos 唯一模板仍在 `../utils/ops/github-dev/nacos/DEFAULT_GROUP/rag-spring.yaml`；新增两开关默认关闭。Java 引擎密钥与 Python 环境变量需一致，不能放在前端或公开 Git。
 
 完整范围、验收与回滚见 [改版手册](docs/rag-engine-upgrade.md)，Python 环境、接口契约与部署见 [引擎文档](engine/README.md)。轻量引擎与 OCR 模型分别部署；NAS 示例限制引擎 1.5 GiB，不包含 OCR 权重。
+
+NAS 示例的宿主端口默认 `18091`（`RAG_ENGINE_HOST_PORT`），避开 Seata 已使用的 `8091`；引擎容器内部仍为 `8091`。个人 Nacos 的 `rag.engine.base-url` 需与宿主端口一致，OCR 仍通过容器内网 `rag-ocr:8092` 访问。具体配置见 [NAS 双容器部署](engine/README.md#nas-双容器部署)。
 
 本机验证（无 Nacos、无真实模型调用）：
 
