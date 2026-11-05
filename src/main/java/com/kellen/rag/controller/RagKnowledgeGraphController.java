@@ -2,6 +2,7 @@ package com.kellen.rag.controller;
 
 import com.kellen.rag.entity.enums.RagGraphNodeType;
 import com.kellen.rag.entity.vo.RagGraphSyncVO;
+import com.kellen.rag.entity.vo.GraphBuildVO;
 import com.kellen.rag.entity.vo.RagKnowledgeGraphVO;
 import com.kellen.rag.model.KnowledgeGraphViewMode;
 import com.kellen.rag.service.RagKnowledgeGraphService;
@@ -11,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -46,5 +48,13 @@ public class RagKnowledgeGraphController {
     @Operation(summary = "同步知识图谱", description = "从当前租户活动向量切片幂等生成节点和关系")
     public ApiResponse<RagGraphSyncVO> sync(@RequestParam(required = false) String knowledgeBase) {
         return ApiResponse.success(graphService.sync(knowledgeBase));
+    }
+
+    @GetMapping("/builds/{id}")
+    @PreAuthorize("hasAnyAuthority('rag:graph:view', 'rag:graph:manage')")
+    @Operation(summary = "查询图谱构建任务", description = "只读取当前租户和指定知识库的异步任务状态")
+    public ApiResponse<GraphBuildVO> build(@PathVariable String id,
+                                           @RequestParam String knowledgeBase) {
+        return ApiResponse.success(graphService.build(id, knowledgeBase));
     }
 }

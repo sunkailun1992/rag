@@ -279,6 +279,43 @@ class RagEngineRoutingIntegrationTest {
         return filter.entrySet().stream().allMatch(entry -> entry.getValue().equals(point.payload().get(entry.getKey())));
     }
 
+    @Test
+    void shouldKeepValidatedActiveVectorsWhenGraphQueueRejectsUpload() {
+        when(graphs.isAsynchronous()).thenReturn(true);
+        when(parser.parse(anyString(), anyString(), any(byte[].class))).thenReturn(
+                new ParsedKnowledgeDocument("Synthetic", "fixture.pdf", "pdf", List.of(
+                        new KnowledgeChunkDraft("pdf-text", "page-1", "page-1", "Synthetic evidence"))));
+        when(embedding.embedDocuments(anyList())).thenReturn(List.of(new float[properties.getEmbeddingDimension()]));
+        List<StoredVectorPoint> stored = new ArrayList<>();
+        doAnswer(invocation -> {
+            List<VectorPoint> points = invocation.getArgument(0);
+            points.forEach(point -> stored.add(new StoredVectorPoint(point.id(),
+                    new LinkedHashMap<>(point.payload()), properties.getEmbeddingDimension())));
+            return null;
+        }).when(vectors).upsert(anyList());
+        when(vectors.scroll(anyMap(), anyInt(), anyBoolean())).thenAnswer(invocation -> {
+            Map<String, Object> filter = invocation.getArgument(0);
+            int limit = invocation.getArgument(1);
+            return stored.stream().filter(point -> matches(point, filter)).limit(limit).toList();
+        });
+        doAnswer(invocation -> {
+            Map<String, Object> filter = invocation.getArgument(0);
+            Map<String, Object> update = invocation.getArgument(1);
+            stored.stream().filter(point -> matches(point, filter)).forEach(point -> point.payload().putAll(update));
+            return null;
+        }).when(vectors).setPayload(anyMap(), anyMap());
+        when(graphs.syncDocument(anyString())).thenThrow(ExternalServiceException.httpFailure("RAG engine", 429));
+
+        var result = documentService.ingest(new MockMultipartFile("file", "fixture.pdf", "application/pdf",
+                "synthetic graph rejection".getBytes(StandardCharsets.UTF_8)), "routing-test", "graph-doc", "Synthetic");
+
+        assertThat(result.document().status()).isEqualTo("ACTIVE");
+        assertThat(result.graphStatus()).isEqualTo("FAILED");
+        assertThat(result.validation().valid()).isTrue();
+        assertThat(stored).allSatisfy(point -> assertThat(point.payload()).containsEntry("document_status", "ACTIVE"));
+        verify(graphs, never()).deactivateDocument(anyString());
+    }
+
     private RagRetrievalRpcRequest request() {
         RagRetrievalRpcRequest request = new RagRetrievalRpcRequest();
         request.setQuery("synthetic query");

@@ -1,6 +1,6 @@
 # RAG Python 引擎
 
-`rag/engine` 与 Java `rag` 同仓管理。Java 继续拥有认证、租户、知识库、文档版本、幂等、Qdrant 写入、读回校验和图谱；本引擎只负责 PDF/图片解析与可选的检索计算。
+`rag/engine` 与 Java `rag` 同仓管理。Java 继续拥有认证、租户、知识库、文档版本、幂等、Qdrant 写入与活动来源权威；本引擎负责 PDF/图片解析、可选检索计算，以及显式开启后的 LlamaIndex/Neo4j 派生图谱。
 
 当前实现：
 
@@ -104,6 +104,22 @@ uv run --frozen pytest -q
 - [PaddleOCR-VL 服务调用协议](https://www.paddleocr.ai/latest/en/version3.x/pipeline_usage/PaddleOCR-VL.html)
 - [Qdrant 向量 schema](https://qdrant.tech/documentation/manage-data/vectors/)
 - [pypdf 文本提取与资源限制说明](https://pypdf.readthedocs.io/en/stable/user/extract-text.html)
+
+## LlamaIndex 与 Neo4j 派生图谱
+
+`RAG_ENGINE_GRAPH_ENABLED=false` 为默认状态，关闭时图接口明确返回 `GRAPH_NOT_CONFIGURED`，原解析/检索保持可用。Java 图开关另行控制路由，不能仅凭依赖已安装称已启用。新增直接依赖 `llama-index-graph-stores-neo4j==0.8.0` 与现有 core `0.14.25` 配套；要求 Neo4j 服务端至少 5.23（集成使用 `CALL (variables) {}`），部署建议已核验的 5.26 LTS 与对应 APOC。模型仍走配置的千问 compatible `/chat/completions`，使用 LlamaIndex `CustomLLM` 和原 bounded HTTP，无默认 OpenAI 凭据、embedding 或模型下载。
+
+内部接口均要求 Service Bearer 与可信 `X-Tenant-Id`，JSON 不接受 tenant。`POST /v1/graphs/builds` 接收 `knowledgeBase/activeSources/reconcile`；`POST /v1/graphs/queries` 另接收 `searchText/nodeType/viewMode/limit`；`POST /v1/graphs/deactivations` 接收 `documentId/documentRevision`，返回删除屏障票据；`GET /v1/graphs/builds/{buildId}?knowledgeBase=...` 按 tenant+KB 查询任务状态。请求最多 8 MiB、10000 个来源身份、正文总量12000000字符，超限整次拒绝；每个身份包含 `pointId/documentId/documentCode/documentVersion/documentRevision/chunkId/contentSha256`。来源按64点批量从现有 Qdrant 回读，逐项检查身份、ACTIVE、正文与 Java 语义去重 SHA256，不接受客户端正文、文件路径或远程模型地址。Qdrant dense/sparse schema、向量、模型和维度不因图谱构建改变。
+
+构建返回持久任务 `QUEUED`，不代表完成。单并发工作进程、有界持久队列、独立总 deadline，超时/取消杀死并回收进程；容器限制RSS，不使用易误杀NumPy映射的RLIMIT_AS。队列满返回429。全局Neo4j租约限制多个引擎同时调度；部署只启动一个Uvicorn worker。重启将中断RUNNING明确标为FAILED，未超时QUEUED可继续。单次任务使用独立staging generation，真实 `SimpleLLMPathExtractor` 后置scope变换后交给 `PropertyGraphIndex(embed_kg_nodes=False)`。每个实体出现的ID含tenant/KB/generation/pointId，实体名字不能跨来源MERGE；谓词使用安全hash类型身份，防同端点不同谓词互相覆盖。模型附加属性和控制字段全部丢弃，原文不会进入运行日志。
+
+只有全量写入、计数/来源读回、ACTIVE Qdrant复核通过后才在事务中发布generation。发布核对当前请求、文档revision、提交序号、删除屏障epoch、任务deadline和worker租约。完整快照只被较新的完整快照替代，只退役自身提交前已请求且不在快照中的旧文档，不废弃更晚入队的新文档。删除先退役并记录blockedRevision、递增屏障；同revision普通sync即便暂时仍读到ACTIVE也不能复活。更高revision重传可重新构建；只有向量删除失败的Java补偿路径才携带 `restoreFence:{documentId,barrierEpoch,documentRevision}`，严格匹配当前票据后恢复，旧票据不能跨越新delete。失败staging不可查询。后台按tenant/KB分批清理无活动文档及无QUEUED/RUNNING引用的旧generation，每轮最多4×512节点，重启后继续；终态任务保留脱敏状态计数，移除来源快照JSON。Chunk明确设置LlamaIndex SOURCE关系，避免官方serializer把document_id覆盖为None；来源读回同时核对documentId/version/revision。
+
+查询执行固定有界Cypher，读取当前文档激活generation，并检查所有端点、关系与来源的tenant/KB/point/版本身份。返回后再从Qdrant复核实际使用来源，Java还应再次检查当前活动快照。当前展示类型仅 `ENTITY/RELATED_TO`，同名实体在当前tenant+KB内聚合；旧结构类型过滤在新后端返回空，前端应隐藏不适用选项。所有节点和边有1至8条 `properties.sources`，并给出实际返回范围内的 `sourceCount/sourceTruncated`；来源保留identity、locator、按实体实际位置截取的证据及evidenceTruncated/evidenceNormalized标记，以及page/bbox/block_type/ocr_capabilities白名单与有限重复位置。properties.extractionMethod/model/models明确模型抽取身份；实体名字必须归一后实际出现于原文，不能把模型推测称为原文已证实关系。节点最多500、边最多min(配置,limit×4,2000)、响应最多8MiB，结果截断时不返回悬空端点。
+
+`RAG_ENGINE_GRAPH_RETRIEVAL_ENABLED=false` 独立关闭图检索增强。显式开启后，以已通过隔离校验的Qdrant候选为种子，仅沿当前激活generation和授权scope扩展同名实体关联的原文切片；图查询与Qdrant二次回读合计最多0.4秒，包含在原三秒总检索预算。扩展原文继续参与rerank及原相关性门槛，不直接把三元组当作上下文。响应graphAugmented表示实际加入新候选，graphDegraded表示扩展不可用/超时降级；图隔离或来源身份违规整次拒绝。未命中/无新候选不宣称增强成功。真实图参与检索仍需端点与业务语料验收。
+
+图配置的具体用途、单位和缺省值见 `.env.example`。Neo4j/千问真实调用、跨租户/KB、删除恢复、换版、网关与浏览器均需独立验收；本地替身测试不代表服务已部署。
 
 - [Qdrant 1.18 新增向量 schema](https://qdrant.tech/documentation/manage-data/collections/#update-vector-schema)
 - [Qdrant has_vector 过滤](https://qdrant.tech/documentation/search/filtering/#has-vector)

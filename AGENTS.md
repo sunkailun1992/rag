@@ -27,6 +27,7 @@
 - 同级依赖：`../rpc-api` 提供跨服务 RPC 接口和 DTO 契约；`../utils` 提供公共响应、认证上下文、租户、多数据源和基础工具；`../gateway` 负责路由；`../ai-agent` 是当前主要 MCP / AI Registry 消费方
 - 当前状态：已实现 XLSX/DOCX 结构化摄取、embedding、Qdrant 检索、rerank、版本/幂等、读回校验及图谱。本批增加独立 Python 解析/检索引擎、PDF/OCR 适配和评估基准；开关默认关闭。混合检索已实现 LlamaIndex dense/sparse RRF 与显式迁移，必须实际验收后启用；MCP/AI Registry、查询改写和异步摄取仍未实施，不能按文件或依赖存在宣称已启用。
 - 引擎改造入口：先读 `docs/rag-engine-upgrade.md`、`engine/README.md`、`engine/openapi.json` 与 `evaluation/README.md`；不得绕过 Java 权限门面直接将 Python API 暴露给前端。
+- 语义图谱入口：先读 `docs/neo4j-graph-design.md`。启用 `rag.engine.graph-enabled` 时采用 LlamaIndex PropertyGraph + Neo4j 派生索引，任务接收、构建完成和实际发布分别取证；Qdrant 原文与当前活动来源仍是权威。不得按实体名称全局合并，不得执行模型生成的 Cypher，不得把抽取失败变成空图成功或撤销正确的向量上传。
 - 核心风险：检索结果污染模型上下文或越权读取知识、医疗/专业知识来源不可信、embedding 模型与维度在「摄取」与「查询」两侧不一致、向量库连接与降级、敏感数据（如患者画像）归属与合规、MCP / A2A 契约不稳
 
 ## 与现有 report 骨架的差异说明（重要）
@@ -58,7 +59,7 @@
 
 ## 项目边界
 
-- `rag` 是**知识检索能力提供方**：输入查询，输出**带出处的检索上下文片段**。是否调用模型、是否下结论、是否保存会话由调用方（agent）负责，`rag` 不替调用方叫模型、不替调用方下结论。
+- `rag` 是**知识检索能力提供方**：输入查询，输出**带出处的检索上下文片段**。答案生成、下结论和保存会话由调用方（agent）负责；摄取、embedding、rerank 及显式启用的图谱抽取可调用所配置模型，但不得替调用方生成答案。
 - 当前 `rag` 通过 HTTP 与 Dubbo 暴露能力；MCP 工具与 Nacos AI Registry AgentCard 属后续能力，不得按历史规划推定已实现。
 - 向量库统一用 **Qdrant**；**摄取侧与查询侧必须使用同一 embedding 模型 + 同一维度**，维度必须等于 collection 向量维，变更即需重建 collection 并全量重嵌入。
 - 摄取（解析/切片/embedding/写库）与检索（查询/向量检索/拼接）职责分离；摄取是离线/批量，未来可能外移（如 Python），检索在请求链路上。

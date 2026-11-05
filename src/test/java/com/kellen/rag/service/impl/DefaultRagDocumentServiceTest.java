@@ -55,7 +55,7 @@ class DefaultRagDocumentServiceTest {
         assertTrue(service.deactivate("document-1"));
 
         var ordered = inOrder(graphService, vectorStoreClient);
-        ordered.verify(graphService).deactivateDocument("document-1");
+        ordered.verify(graphService).deactivateDocumentWithFence("document-1");
         ordered.verify(vectorStoreClient).setPayload(anyMap(),
                 org.mockito.ArgumentMatchers.eq(java.util.Map.of("document_status", "DELETED")));
     }
@@ -72,7 +72,21 @@ class DefaultRagDocumentServiceTest {
         assertThrows(IllegalStateException.class,
                 () -> service(vectorStoreClient, graphService).deactivate("document-1"));
 
-        verify(graphService).syncDocument("document-1");
+        verify(graphService).restoreDocument("document-1", null);
+    }
+
+    @Test
+    void shouldStopVectorDeletionWhenGraphBarrierFails() {
+        VectorStoreClient vectors = mock(VectorStoreClient.class);
+        RagKnowledgeGraphService graphs = mock(RagKnowledgeGraphService.class);
+        TenantContextHolder.setTenantId("tenant-test");
+        when(vectors.count(anyMap())).thenReturn(1L);
+        org.mockito.Mockito.doThrow(new IllegalStateException("graph unavailable"))
+                .when(graphs).deactivateDocumentWithFence("document-1");
+
+        assertThrows(IllegalStateException.class, () -> service(vectors, graphs).deactivate("document-1"));
+
+        verify(vectors, never()).setPayload(anyMap(), anyMap());
     }
 
     @Test

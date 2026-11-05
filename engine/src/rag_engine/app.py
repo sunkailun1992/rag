@@ -15,6 +15,14 @@ from fastapi.responses import JSONResponse
 
 from rag_engine.config import Settings
 from rag_engine.errors import EngineError
+from rag_engine.graph_jobs import GraphManager
+from rag_engine.graph_models import (
+    GraphBuild,
+    GraphBuildRequest,
+    GraphDeactivation,
+    GraphQueryRequest,
+    GraphResponse,
+)
 from rag_engine.models import ParseRequest, ParseResponse, RetrievalRequest, RetrievalResponse
 from rag_engine.parsing import parse_document
 from rag_engine.retrieval import retrieve
@@ -54,7 +62,9 @@ class RequestBoundary:
                 await error_response("JSON_REQUIRED", 415)(scope, receive, send)
                 return
             maximum = 4 * ((self.settings.max_file_bytes + 2) // 3) + 4096
-            if scope["path"] != "/v1/parses":
+            if scope["path"].startswith("/v1/graphs/"):
+                maximum = 8 * 1024 * 1024
+            elif scope["path"] != "/v1/parses":
                 maximum = 65536
             buffer = bytearray()
             try:
@@ -103,7 +113,28 @@ def create_app(
             app.state.client = client
             app.state.parse_slots = asyncio.Semaphore(settings.parse_workers)
             app.state.retrieval_slots = asyncio.Semaphore(16)
-            yield
+            app.state.graph = None
+            if settings.graph_enabled and all(
+                [
+                    settings.neo4j_url,
+                    settings.neo4j_password.get_secret_value(),
+                    settings.qdrant_url,
+                    settings.qwen_base_url,
+                    settings.qwen_api_key.get_secret_value(),
+                ]
+            ):
+                manager = GraphManager(settings, client)
+                try:
+                    await manager.start()
+                    app.state.graph = manager
+                except Exception:
+                    logger.warning("rag_graph_failed code=GRAPH_STORE_UNAVAILABLE")
+                    await manager.repository.driver.close()
+            try:
+                yield
+            finally:
+                if app.state.graph:
+                    await app.state.graph.stop()
 
     app = FastAPI(
         title="RAG Engine Internal API",
@@ -160,7 +191,13 @@ def create_app(
             raise EngineError("RETRIEVAL_BUSY", 429) from error
         try:
             async with asyncio.timeout(settings.retrieval_timeout_seconds):
-                return await retrieve(body, request.state.tenant, settings, app.state.client)
+                return await retrieve(
+                    body,
+                    request.state.tenant,
+                    settings,
+                    app.state.client,
+                    graph_repository=app.state.graph.repository if app.state.graph else None,
+                )
         except TimeoutError as error:
             raise EngineError("RETRIEVAL_TIMEOUT", 504) from error
         except httpx.HTTPError as error:
@@ -168,6 +205,50 @@ def create_app(
         finally:
             app.state.retrieval_slots.release()
             logger.info("rag_retrieval_finished elapsed_ms=%d", (time.monotonic() - started) * 1000)
+
+    def graph_manager():
+        if app.state.graph is None:
+            raise EngineError("GRAPH_NOT_CONFIGURED", 503)
+        return app.state.graph
+
+    async def graph_operation(operation):
+        try:
+            async with asyncio.timeout(settings.graph_query_timeout_seconds):
+                return await operation
+        except EngineError:
+            raise
+        except TimeoutError as error:
+            raise EngineError("GRAPH_REQUEST_TIMEOUT", 504) from error
+        except Exception as error:
+            raise EngineError("GRAPH_STORE_UNAVAILABLE", 503) from error
+
+    @app.post("/v1/graphs/builds", response_model=GraphBuild)
+    async def graph_builds(body: GraphBuildRequest, request: Request):
+        return await graph_operation(graph_manager().submit(request.state.tenant, body))
+
+    @app.post("/v1/graphs/queries", response_model=GraphResponse, response_model_exclude_unset=True)
+    async def graph_queries(body: GraphQueryRequest, request: Request):
+        return await graph_operation(graph_manager().query(request.state.tenant, body))
+
+    @app.post("/v1/graphs/deactivations")
+    async def graph_deactivations(body: GraphDeactivation, request: Request):
+        return await graph_operation(
+            graph_manager().repository.deactivate(
+                request.state.tenant,
+                body.documentId,
+                body.documentRevision,
+            )
+        )
+
+    @app.get("/v1/graphs/builds/{buildId}", response_model=GraphBuild)
+    async def graph_status(buildId: str, knowledgeBase: str, request: Request):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", buildId) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{1,64}", knowledgeBase
+        ):
+            raise EngineError("INVALID_REQUEST", 422)
+        return await graph_operation(
+            graph_manager().repository.status(request.state.tenant, knowledgeBase, buildId)
+        )
 
     def contract_schema():
         if app.openapi_schema is None:

@@ -33,6 +33,38 @@ class Settings(BaseSettings):
     retrieval_timeout_seconds: float = Field(default=3.0, ge=0.1, le=3.0)
     rerank_timeout_seconds: float = Field(default=0.8, ge=0.05, le=1.5)
     max_upstream_bytes: int = Field(default=16 * 1024 * 1024, ge=1024, le=16 * 1024 * 1024)
+    graph_enabled: bool = False
+    graph_retrieval_enabled: bool = False
+    neo4j_url: str = ""
+    neo4j_username: str = "neo4j"
+    neo4j_password: SecretStr = SecretStr("")
+    neo4j_database: str = Field(default="neo4j", pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    graph_model: str = Field(default="qwen-plus", min_length=1, max_length=128)
+    graph_queue_size: int = Field(default=2, ge=1, le=8)
+    graph_build_timeout_seconds: float = Field(default=300, ge=1, le=1800)
+    graph_query_timeout_seconds: float = Field(default=3, ge=0.1, le=10)
+    graph_llm_timeout_seconds: float = Field(default=20, ge=0.1, le=60)
+    graph_max_triplets_per_chunk: int = Field(default=12, ge=1, le=32)
+    graph_max_edges: int = Field(default=2000, ge=1, le=4000)
+    graph_lease_seconds: int = Field(default=30, ge=10, le=120)
+
+    @field_validator("neo4j_url")
+    @classmethod
+    def neo4j_service_url(cls, value: str) -> str:
+        if not value:
+            return value
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            raise ValueError("invalid Neo4j service URL")
+        return value.rstrip("/")
 
     @field_validator("qdrant_url", "qwen_base_url", "ocr_url")
     @classmethod

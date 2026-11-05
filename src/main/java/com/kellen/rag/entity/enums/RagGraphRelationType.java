@@ -9,7 +9,8 @@ public enum RagGraphRelationType implements IEnum<String> {
 
     CONTAINS,
     HAS_ATTRIBUTE,
-    MENTIONS;
+    MENTIONS,
+    RELATED_TO;
 
     @Override
     public String getValue() {

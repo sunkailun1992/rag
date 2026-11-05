@@ -3,7 +3,7 @@ services:
   rag-engine:
     build: .
     # 与 Java 版本分开管理；生产部署应使用实际构建的不可变镜像标签。
-    image: kellen-rag-engine:0.1.0
+    image: kellen-rag-engine:0.1.3
     # 默认仅本机可访问；跨主机调用请配置内网反向代理/TLS 和防火墙。
     ports:
       - "127.0.0.1:8091:8091"

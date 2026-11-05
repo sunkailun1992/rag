@@ -1,12 +1,17 @@
 package com.kellen.rag.service.impl;
 
 import com.kellen.rag.client.VectorStoreClient;
+import com.kellen.rag.client.RagEngineClient;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.entity.enums.RagGraphNodeType;
 import com.kellen.rag.entity.vo.RagGraphEdgeVO;
 import com.kellen.rag.entity.vo.RagGraphNodeVO;
 import com.kellen.rag.entity.vo.RagGraphSyncVO;
 import com.kellen.rag.entity.vo.RagKnowledgeGraphVO;
+import com.kellen.rag.entity.vo.GraphBuildVO;
+import com.kellen.rag.model.ActiveGraphSource;
+import com.kellen.rag.model.GraphRemovalFence;
+import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.graph.KnowledgeGraphProjector;
 import com.kellen.rag.model.KnowledgeGraphEdge;
 import com.kellen.rag.model.KnowledgeGraphNode;
@@ -19,11 +24,14 @@ import com.kellen.rag.service.RagKnowledgeGraphService;
 import com.kellen.rag.store.KnowledgeGraphStore;
 import com.kellen.utils.context.TenantContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -40,21 +48,40 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
     private final VectorStoreClient vectorStoreClient;
     private final KnowledgeGraphProjector projector;
     private final KnowledgeGraphStore graphStore;
+    private final RagEngineClient engine;
 
     public DefaultRagKnowledgeGraphService(RagVectorProperties properties,
                                            VectorStoreClient vectorStoreClient,
                                            KnowledgeGraphProjector projector,
                                            KnowledgeGraphStore graphStore) {
+        this(properties, vectorStoreClient, projector, graphStore, null);
+    }
+
+    @Autowired
+    public DefaultRagKnowledgeGraphService(RagVectorProperties properties,
+                                           VectorStoreClient vectorStoreClient,
+                                           KnowledgeGraphProjector projector,
+                                           KnowledgeGraphStore graphStore,
+                                           RagEngineClient engine) {
         this.properties = properties;
         this.vectorStoreClient = vectorStoreClient;
         this.projector = projector;
         this.graphStore = graphStore;
+        this.engine = engine;
+    }
+
+    @Override
+    public boolean isAsynchronous() {
+        return engineEnabled();
     }
 
     @Override
     public RagGraphSyncVO sync(String knowledgeBase) {
         String tenantId = requireTenant();
         String base = safeCode(knowledgeBase, properties.getDefaultKnowledgeBase());
+        if (engineEnabled()) {
+            return RagGraphSyncVO.fromBuild(engine.buildGraph(base, snapshot(tenantId, base, null).sources(), true));
+        }
         if (!vectorStoreClient.collectionExists()) {
             return new RagGraphSyncVO(base, 0, 0, 0);
         }
@@ -80,6 +107,14 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
     public RagGraphSyncVO syncDocument(String documentId) {
         String tenantId = requireTenant();
         String id = requiredId(documentId);
+        if (engineEnabled()) {
+            ActiveSnapshot snapshot = snapshot(tenantId, null, id);
+            if (snapshot.sources().isEmpty()) {
+                deactivateDocumentWithFence(id);
+                return new RagGraphSyncVO("", 0, 0, 0, null, "SUCCEEDED");
+            }
+            return RagGraphSyncVO.fromBuild(engine.buildGraph(snapshot.knowledgeBase(), snapshot.sources(), false));
+        }
         Map<String, Object> filter = filter(tenantId, null, id);
         requireBoundedPointCount(filter);
         List<StoredVectorPoint> points = vectorStoreClient.scroll(filter, MAX_SYNC_POINTS, false);
@@ -94,7 +129,40 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
 
     @Override
     public void deactivateDocument(String documentId) {
-        graphStore.deactivateDocument(requireTenant(), requiredId(documentId));
+        deactivateDocumentWithFence(documentId);
+    }
+
+    @Override
+    public GraphRemovalFence deactivateDocumentWithFence(String documentId) {
+        String tenant = requireTenant();
+        String id = requiredId(documentId);
+        if (engineEnabled()) return engine.deactivateGraphDocument(id, existingRevision(tenant, id));
+        graphStore.deactivateDocument(tenant, id);
+        return null;
+    }
+
+    @Override
+    public RagGraphSyncVO restoreDocument(String documentId, GraphRemovalFence fence) {
+        if (!engineEnabled()) return syncDocument(documentId);
+        String tenant = requireTenant();
+        String id = requiredId(documentId);
+        if (fence == null || !id.equals(fence.documentId()) || fence.barrierEpoch() <= 0) {
+            throw new IllegalStateException("缺少本次图谱删除屏障票据");
+        }
+        ActiveSnapshot active = snapshot(tenant, null, id);
+        if (active.sources().isEmpty()) return new RagGraphSyncVO("", 0, 0, 0, null, "CANCELLED");
+        if (active.sources().stream().anyMatch(source -> source.documentRevision() != fence.documentRevision())) {
+            throw new IllegalStateException("图谱补偿来源已换版，不能恢复旧屏障");
+        }
+        return RagGraphSyncVO.fromBuild(engine.buildGraph(active.knowledgeBase(), active.sources(), false, fence));
+    }
+
+    @Override
+    public GraphBuildVO build(String buildId, String knowledgeBase) {
+        requireTenant();
+        String base = safeCode(knowledgeBase, properties.getDefaultKnowledgeBase());
+        if (!engineEnabled()) throw new IllegalArgumentException("异步知识图谱尚未启用");
+        return engine.graphBuild(buildId, base);
     }
 
     @Override
@@ -106,6 +174,16 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
         String search = normalizeSearch(searchText);
         KnowledgeGraphViewMode mode = viewMode == null ? KnowledgeGraphViewMode.OVERVIEW : viewMode;
         int boundedLimit = Math.min(Math.max(limit == null ? 240 : limit, 20), 500);
+        if (engineEnabled()) {
+            ActiveSnapshot before = snapshot(tenantId, base, null);
+            RagKnowledgeGraphVO result = engine.queryGraph(base, before.sources(), search, nodeType, mode, boundedLimit);
+            ActiveSnapshot after = snapshot(tenantId, base, null);
+            // 查询期间删文档或换版时拒绝旧响应，避免把旧图证据展示成当前活动知识。
+            if (!new HashSet<>(before.sources()).equals(new HashSet<>(after.sources()))) {
+                throw ExternalServiceException.httpFailure("RAG engine graph source changed", 502);
+            }
+            return result;
+        }
         KnowledgeGraphSnapshot snapshot = graphStore.query(new KnowledgeGraphQuery(
                 tenantId, base, search, nodeType, mode, boundedLimit));
         List<RagGraphNodeVO> nodes = snapshot.nodes().stream().map(this::toNodeVO).toList();
@@ -122,6 +200,93 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
         return new RagGraphNodeVO(node.id(), node.type().name(), node.name(), node.label(),
                 node.documentId(), node.documentCode(), node.documentVersion(), node.sourceLocator(),
                 node.properties());
+    }
+
+    private boolean engineEnabled() {
+        return engine != null && engine.isGraphEnabled();
+    }
+
+    /** 删除屏障保存当前已知最大业务 revision，包括已停用或失败的同文档切片。 */
+    private long existingRevision(String tenant, String documentId) {
+        if (!vectorStoreClient.collectionExists()) return 0;
+        Map<String, Object> filter = new LinkedHashMap<>();
+        filter.put("tenant_id", tenant);
+        filter.put("document_id", documentId);
+        long expected = vectorStoreClient.count(filter);
+        if (expected < 0 || expected > MAX_SYNC_POINTS) throw new IllegalStateException("文档切片超过屏障核对上限");
+        List<StoredVectorPoint> points = vectorStoreClient.scroll(filter, MAX_SYNC_POINTS, false);
+        if (points.size() != expected || vectorStoreClient.count(filter) != expected) {
+            throw new IllegalStateException("文档屏障来源快照不完整或发生变化");
+        }
+        long revision = 0;
+        for (StoredVectorPoint point : points) {
+            if (!tenant.equals(point.payload().get("tenant_id"))
+                    || !documentId.equals(point.payload().get("document_id"))) {
+                throw new IllegalStateException("文档屏障来源超出范围");
+            }
+            revision = Math.max(revision, sourceNumber(point.payload(), "document_revision"));
+        }
+        return revision;
+    }
+
+    /** 完整来源快照必须计数、读回、逐点核验；禁止截断后构建或清理。 */
+    private ActiveSnapshot snapshot(String tenant, String knowledgeBase, String documentId) {
+        if (!vectorStoreClient.collectionExists()) return new ActiveSnapshot(knowledgeBase, List.of());
+        Map<String, Object> filter = filter(tenant, knowledgeBase, documentId);
+        long expected = vectorStoreClient.count(filter);
+        if (expected > MAX_SYNC_POINTS) throw new IllegalStateException("活动知识切片超过单次图谱同步上限，请拆分知识库后重试");
+        if (expected < 0) throw new IllegalStateException("活动知识切片数量不合法");
+        List<StoredVectorPoint> points = vectorStoreClient.scroll(filter, MAX_SYNC_POINTS + 1, false);
+        if (points.size() != expected || vectorStoreClient.count(filter) != expected) {
+            throw new IllegalStateException("活动知识切片快照不完整或发生变化，请重试");
+        }
+        List<ActiveGraphSource> sources = new ArrayList<>();
+        HashSet<String> ids = new HashSet<>();
+        String base = knowledgeBase;
+        for (StoredVectorPoint point : points) {
+            Map<String, Object> payload = point.payload();
+            String actualBase = safeCode(sourceText(payload, "knowledge_base", 64), null);
+            if (base == null) base = actualBase;
+            if (!tenant.equals(payload.get("tenant_id")) || !base.equals(actualBase)
+                    || !"ACTIVE".equals(payload.get("document_status"))
+                    || documentId != null && !documentId.equals(payload.get("document_id"))
+                    || point.id() == null || point.id().isBlank() || point.id().length() > 128 || !ids.add(point.id())) {
+                throw new IllegalStateException("活动图谱来源超出范围或身份重复");
+            }
+            long version = sourceNumber(payload, "document_version");
+            long revision = sourceNumber(payload, "document_revision");
+            String hash = sourceText(payload, "content_sha256", 64);
+            if (version > Integer.MAX_VALUE || !hash.matches("[0-9a-f]{64}")) {
+                throw new IllegalStateException("活动图谱来源版本或摘要不合法");
+            }
+            sources.add(new ActiveGraphSource(point.id(), sourceText(payload, "document_id", 64),
+                    safeCode(sourceText(payload, "document_code", 64), null), (int) version, revision,
+                    sourceText(payload, "chunk_id", 128), hash));
+        }
+        return new ActiveSnapshot(base, List.copyOf(sources));
+    }
+
+    private String sourceText(Map<String, Object> payload, String key, int maximum) {
+        Object value = payload.get(key);
+        if (!(value instanceof String text) || text.isBlank() || text.length() > maximum) {
+            throw new IllegalStateException("活动图谱来源身份不完整");
+        }
+        return text;
+    }
+
+    private long sourceNumber(Map<String, Object> payload, String key) {
+        Object value = payload.get(key);
+        try {
+            if (!(value instanceof Number)) throw new NumberFormatException();
+            long number = Long.parseLong(value.toString());
+            if (number <= 0) throw new NumberFormatException();
+            return number;
+        } catch (NumberFormatException exception) {
+            throw new IllegalStateException("活动图谱来源版本不合法");
+        }
+    }
+
+    private record ActiveSnapshot(String knowledgeBase, List<ActiveGraphSource> sources) {
     }
 
     private RagGraphEdgeVO toEdgeVO(KnowledgeGraphEdge edge) {

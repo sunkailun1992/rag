@@ -8,7 +8,7 @@
 
 ## Python 引擎演进
 
-本批 Java 版本为 `1.1.3`，新增同仓独立的 [`engine/`](engine/README.md)。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入及图谱；现有 HTTP 和 Dubbo 契约保持。
+本批 Java 版本为 `1.1.4`，同仓独立的 [`engine/`](engine/README.md) 负责解析、检索与可选的语义图谱构建。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入和图谱来源终检；现有 HTTP 和 Dubbo 契约保持。
 
 - 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
 - `rag.engine.retrieval-enabled` 默认 false。开启后使用 Python 检索，失败不叠加旧查询；关闭可恢复 Java 检索。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
@@ -17,6 +17,16 @@
 - Nacos 唯一模板仍在 `../utils/ops/github-dev/nacos/DEFAULT_GROUP/rag-spring.yaml`；新增两开关默认关闭。Java 引擎密钥与 Python 环境变量需一致，不能放在前端或公开 Git。
 
 完整范围、验收与回滚见 [改版手册](docs/rag-engine-upgrade.md)，Python 环境、接口契约与部署见 [引擎文档](engine/README.md)。轻量引擎与 OCR 模型分别部署；NAS 示例限制引擎 1.5 GiB，不包含 OCR 权重。
+
+## LlamaIndex 与 Neo4j 知识图谱
+
+启用 `rag.engine.graph-enabled` 后，原有 `/api/rag/graphs` 接口通过 Java 门面读取 Neo4j 派生索引。Python 使用 LlamaIndex PropertyGraph 及官方 Neo4j 适配器，Qwen 只用于实体关系抽取；Qdrant 的原文、dense/sparse schema 与嵌入维度保持独立。关闭开关继续使用原 MySQL 文档结构投影。
+
+构建为异步任务：同步接口返回 `buildId/status`，状态接口 `GET /api/rag/graphs/builds/{id}?knowledgeBase=...` 区分排队、运行、完成和失败。上传成功只表示向量写入和校验完成；图谱抽取失败不会撤销活动向量，可在图谱页重试。新图在完整构建和来源重检后才发布，失败时保留之前可用的图。
+
+语义实体类型为 `ENTITY`，关系为 `RELATED_TO`，实际谓词显示在 `label`。节点及关系分别提供多文档证据，包含文档版本、切片指纹、来源定位和受控摘录；同名实体的跨来源展示仅在当前租户和知识库范围内聚合。实体关系是模型抽取结果，应结合原文核实，不能替代原始文档。前端不连接 Neo4j，也不传租户或模型凭据。
+
+Java 每次提供当前活动来源快照，并对引擎返回的证据逐条复核。构建 staging generation、删除屏障和 revision 比较阻止迟到任务复活旧来源。完整协议、限制与回滚见 [图谱设计](docs/neo4j-graph-design.md) 和 [实施与验收计划](docs/neo4j-graph-plan.md)。
 
 NAS 示例的宿主端口默认 `18091`（`RAG_ENGINE_HOST_PORT`），避开 Seata 已使用的 `8091`；引擎容器内部仍为 `8091`。个人 Nacos 的 `rag.engine.base-url` 需与宿主端口一致，OCR 仍通过容器内网 `rag-ocr:8092` 访问。具体配置见 [NAS 双容器部署](engine/README.md#nas-双容器部署)。
 

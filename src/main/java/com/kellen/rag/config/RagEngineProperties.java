@@ -15,6 +15,12 @@ public class RagEngineProperties {
     private boolean parseEnabled;
     /** 检索切换开关；必须完成评估后显式启用。 */
     private boolean retrievalEnabled;
+    /** Neo4j 派生图开关；缺省关闭时沿用 MySQL 结构投影。 */
+    private boolean graphEnabled;
+    /** 提交构建、查询与删除屏障的 HTTP 总时限，毫秒；不复用检索预算。 */
+    private int graphTimeoutMillis = 10000;
+    /** 构建状态查询的 HTTP 总时限，毫秒。 */
+    private int graphStatusTimeoutMillis = 3500;
     /** 服务端可信配置的 HTTP(S) 根地址，不能来自终端用户。 */
     private String baseUrl;
     /** Java 门面与引擎之间的服务凭据，不是用户 JWT。 */

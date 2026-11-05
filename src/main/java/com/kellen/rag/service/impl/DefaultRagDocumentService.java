@@ -78,8 +78,7 @@ public class DefaultRagDocumentService implements RagDocumentService {
                     .findFirst().orElse(null);
             if (activeDuplicate != null) {
                 String documentId = text(activeDuplicate.payload(), "document_id");
-                graphService.syncDocument(documentId); // 为功能上线前已存在的活动向量幂等补建图谱。
-                return new RagDocumentIngestionVO(toDocument(activeDuplicate), true, validate(documentId));
+                return withGraphResult(toDocument(activeDuplicate), true, validate(documentId));
             }
 
             ParsedKnowledgeDocument parsed = parser.parse(file.getOriginalFilename(), title, bytes);
@@ -161,11 +160,15 @@ public class DefaultRagDocumentService implements RagDocumentService {
                 }
                 vectorStoreClient.setPayload(filter(tenantId, null, "document_id", documentId),
                         Map.of("document_status", STATUS_ACTIVE));
-                graphService.syncDocument(documentId); // 只从已读回校验通过的活动切片生成关系，失败时不静默伪造图谱成功。
+                // 关闭新后端时保留同步图的原顺序：图成功后才退役上一活动版本。
+                boolean asynchronousGraph = graphService.isAsynchronous();
+                var graph = asynchronousGraph ? null : graphService.syncDocument(documentId);
                 reconcileVersions(tenantId, base, code);
                 StoredVectorPoint stored = vectorStoreClient.scroll(filter(
                         tenantId, base, "document_id", documentId), 1, false).get(0);
-                return new RagDocumentIngestionVO(toDocument(stored), false, validateInternal(tenantId, documentId));
+                RagDocumentValidationVO validation = validateInternal(tenantId, documentId);
+                return asynchronousGraph ? withGraphResult(toDocument(stored), false, validation)
+                        : new RagDocumentIngestionVO(toDocument(stored), false, validation, graph, "SUCCEEDED");
             } catch (RuntimeException exception) {
                 try {
                     vectorStoreClient.setPayload(filter(tenantId, null, "document_id", documentId),
@@ -267,13 +270,13 @@ public class DefaultRagDocumentService implements RagDocumentService {
         if (count == 0) {
             return false;
         }
-        graphService.deactivateDocument(id); // 先隐藏派生图谱，避免向量状态修改成功而图谱删除失败时出现幽灵关系。
+        var fence = graphService.deactivateDocumentWithFence(id);
         try {
             vectorStoreClient.setPayload(filter(tenantId, null, "document_id", id),
                     Map.of("document_status", STATUS_DELETED));
         } catch (RuntimeException exception) {
             try {
-                graphService.syncDocument(id); // 向量仍为活动状态时尽力恢复图谱，保持源数据与派生索引一致。
+                graphService.restoreDocument(id, fence); // 仅本次屏障票据可恢复，迟到补偿不能清除新删除。
             } catch (RuntimeException ignored) {
                 // 原异常优先；即使恢复失败也只会暂时少展示图谱，不会暴露已停用文档。
             }
@@ -309,6 +312,20 @@ public class DefaultRagDocumentService implements RagDocumentService {
         }
         boolean allValid = points.size() == expected && invalidHash == 0 && invalidDimension == 0;
         return new RagDocumentValidationVO(allValid, expected, points.size(), valid, invalidHash, invalidDimension);
+    }
+
+    /** 图是派生索引，任务接收或失败都不能撤销已经验证并激活的向量。 */
+    private RagDocumentIngestionVO withGraphResult(RagDocumentVO document, boolean idempotent,
+                                                   RagDocumentValidationVO validation) {
+        try {
+            var graph = graphService.syncDocument(document.documentId());
+            String status = graph == null || graph.status() == null ? "SUCCEEDED" : graph.status();
+            return new RagDocumentIngestionVO(document, idempotent, validation, graph, status);
+        } catch (RuntimeException exception) {
+            if (!graphService.isAsynchronous()) throw exception;
+            // 不传播外部异常正文；前端可显式重试图谱同步，向量检索继续可用。
+            return new RagDocumentIngestionVO(document, idempotent, validation, null, "FAILED");
+        }
     }
 
     private void reconcileVersions(String tenantId, String knowledgeBase, String documentCode) {

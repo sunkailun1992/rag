@@ -310,10 +310,650 @@
           }
         ]
       }
+    },
+    "/v1/graphs/builds": {
+      "post": {
+        "summary": "Graph Builds",
+        "operationId": "graph_builds_v1_graphs_builds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphBuildRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphBuild"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "description": "来自 Java 已验证身份的当前租户，不能使用前端任意传值。",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/graphs/queries": {
+      "post": {
+        "summary": "Graph Queries",
+        "operationId": "graph_queries_v1_graphs_queries_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "description": "来自 Java 已验证身份的当前租户，不能使用前端任意传值。",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/graphs/deactivations": {
+      "post": {
+        "summary": "Graph Deactivations",
+        "operationId": "graph_deactivations_v1_graphs_deactivations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphDeactivation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "description": "来自 Java 已验证身份的当前租户，不能使用前端任意传值。",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/graphs/builds/{buildId}": {
+      "get": {
+        "summary": "Graph Status",
+        "operationId": "graph_status_v1_graphs_builds__buildId__get",
+        "parameters": [
+          {
+            "name": "buildId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Buildid"
+            }
+          },
+          {
+            "name": "knowledgeBase",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Knowledgebase"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "description": "来自 Java 已验证身份的当前租户，不能使用前端任意传值。",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphBuild"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActiveGraphSource": {
+        "properties": {
+          "pointId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Pointid"
+          },
+          "documentId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Documentid"
+          },
+          "documentCode": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Documentcode"
+          },
+          "documentVersion": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Documentversion"
+          },
+          "documentRevision": {
+            "type": "integer",
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Documentrevision"
+          },
+          "chunkId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Chunkid"
+          },
+          "contentSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Contentsha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pointId",
+          "documentId",
+          "documentCode",
+          "documentVersion",
+          "documentRevision",
+          "chunkId",
+          "contentSha256"
+        ],
+        "title": "ActiveGraphSource"
+      },
       "Chunk": {
         "properties": {
           "chunkType": {
@@ -348,6 +988,707 @@
           "metadata"
         ],
         "title": "Chunk"
+      },
+      "GraphBuild": {
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "title": "Buildid"
+          },
+          "knowledgeBase": {
+            "type": "string",
+            "title": "Knowledgebase"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status"
+          },
+          "documentCount": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Documentcount"
+          },
+          "processedDocumentCount": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Processeddocumentcount"
+          },
+          "nodeCount": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Nodecount"
+          },
+          "edgeCount": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Edgecount"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcode"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "buildId",
+          "knowledgeBase",
+          "status",
+          "documentCount",
+          "processedDocumentCount",
+          "nodeCount",
+          "edgeCount"
+        ],
+        "title": "GraphBuild"
+      },
+      "GraphBuildRequest": {
+        "properties": {
+          "knowledgeBase": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Knowledgebase"
+          },
+          "activeSources": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveGraphSource"
+            },
+            "type": "array",
+            "maxItems": 10000,
+            "title": "Activesources"
+          },
+          "reconcile": {
+            "type": "boolean",
+            "title": "Reconcile",
+            "default": false
+          },
+          "restoreFence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GraphRestoreFence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "knowledgeBase",
+          "activeSources"
+        ],
+        "title": "GraphBuildRequest"
+      },
+      "GraphDeactivation": {
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Documentid"
+          },
+          "documentRevision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Documentrevision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "documentId",
+          "documentRevision"
+        ],
+        "title": "GraphDeactivation"
+      },
+      "GraphEdge": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "type": {
+            "type": "string",
+            "const": "RELATED_TO",
+            "title": "Type"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "sourceLocator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcelocator"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/GraphProperties"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "target",
+          "type",
+          "label",
+          "sourceLocator",
+          "properties"
+        ],
+        "title": "GraphEdge"
+      },
+      "GraphNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "ENTITY",
+            "title": "Type"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "documentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documentid"
+          },
+          "documentCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documentcode"
+          },
+          "documentVersion": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documentversion"
+          },
+          "sourceLocator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcelocator"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/GraphProperties"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "name",
+          "label",
+          "documentId",
+          "documentCode",
+          "documentVersion",
+          "sourceLocator",
+          "properties"
+        ],
+        "title": "GraphNode"
+      },
+      "GraphProperties": {
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/GraphProvenance"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Sources"
+          },
+          "sourceCount": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sourcecount"
+          },
+          "sourceTruncated": {
+            "type": "boolean",
+            "title": "Sourcetruncated"
+          },
+          "extractionMethod": {
+            "type": "string",
+            "title": "Extractionmethod"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sources",
+          "sourceCount",
+          "sourceTruncated",
+          "extractionMethod",
+          "model",
+          "models"
+        ],
+        "title": "GraphProperties"
+      },
+      "GraphProvenance": {
+        "properties": {
+          "pointId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Pointid"
+          },
+          "documentId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Documentid"
+          },
+          "documentCode": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Documentcode"
+          },
+          "documentVersion": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Documentversion"
+          },
+          "documentRevision": {
+            "type": "integer",
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Documentrevision"
+          },
+          "chunkId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Chunkid"
+          },
+          "contentSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Contentsha256"
+          },
+          "sourceName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcename"
+          },
+          "sourceType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcetype"
+          },
+          "sourceLocator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcelocator"
+          },
+          "chunkType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunktype"
+          },
+          "sectionPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sectionpath"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "evidenceTruncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidencetruncated"
+          },
+          "evidenceNormalized": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidencenormalized"
+          },
+          "sourceMetadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcemetadata"
+          },
+          "duplicateLocators": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicatelocators"
+          },
+          "duplicateSourceMetadata": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicatesourcemetadata"
+          },
+          "duplicateOccurrenceCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicateoccurrencecount"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pointId",
+          "documentId",
+          "documentCode",
+          "documentVersion",
+          "documentRevision",
+          "chunkId",
+          "contentSha256"
+        ],
+        "title": "GraphProvenance"
+      },
+      "GraphQueryRequest": {
+        "properties": {
+          "knowledgeBase": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Knowledgebase"
+          },
+          "activeSources": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveGraphSource"
+            },
+            "type": "array",
+            "maxItems": 10000,
+            "title": "Activesources"
+          },
+          "searchText": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Searchtext",
+            "default": ""
+          },
+          "nodeType": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodetype"
+          },
+          "viewMode": {
+            "type": "string",
+            "enum": [
+              "OVERVIEW",
+              "DETAIL"
+            ],
+            "title": "Viewmode",
+            "default": "OVERVIEW"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 200
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "knowledgeBase",
+          "activeSources"
+        ],
+        "title": "GraphQueryRequest"
+      },
+      "GraphResponse": {
+        "properties": {
+          "knowledgeBase": {
+            "type": "string",
+            "title": "Knowledgebase"
+          },
+          "viewMode": {
+            "type": "string",
+            "enum": [
+              "OVERVIEW",
+              "DETAIL"
+            ],
+            "title": "Viewmode"
+          },
+          "nodeCount": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Nodecount"
+          },
+          "edgeCount": {
+            "type": "integer",
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Edgecount"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          },
+          "nodeTypeCounts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Nodetypecounts"
+          },
+          "relationTypeCounts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Relationtypecounts"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/GraphNode"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Nodes"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEdge"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "title": "Edges"
+          },
+          "backend": {
+            "type": "string",
+            "const": "neo4j",
+            "title": "Backend"
+          },
+          "build": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GraphBuild"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "knowledgeBase",
+          "viewMode",
+          "nodeCount",
+          "edgeCount",
+          "truncated",
+          "nodeTypeCounts",
+          "relationTypeCounts",
+          "nodes",
+          "edges",
+          "backend",
+          "build"
+        ],
+        "title": "GraphResponse"
+      },
+      "GraphRestoreFence": {
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Documentid"
+          },
+          "barrierEpoch": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Barrierepoch"
+          },
+          "documentRevision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Documentrevision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "documentId",
+          "barrierEpoch",
+          "documentRevision"
+        ],
+        "title": "GraphRestoreFence"
       },
       "HTTPValidationError": {
         "properties": {
@@ -529,6 +1870,18 @@
             "type": "boolean",
             "title": "Degraded",
             "description": "重排失败或词法不可用时标记；重排失败的候选未通过独立相关性门槛。",
+            "default": false
+          },
+          "graphAugmented": {
+            "type": "boolean",
+            "title": "Graphaugmented",
+            "description": "已发布图关联扩展且通过活动Qdrant原文复核的新候选参与本次重排；缺省false。",
+            "default": false
+          },
+          "graphDegraded": {
+            "type": "boolean",
+            "title": "Graphdegraded",
+            "description": "可选图服务超时、不可用或来源已变化；保留原向量召回与相关性重排；缺省false。",
             "default": false
           }
         },

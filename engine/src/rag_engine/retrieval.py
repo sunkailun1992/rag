@@ -7,6 +7,7 @@ import httpx
 
 from rag_engine.config import Settings
 from rag_engine.errors import EngineError
+from rag_engine.graph_retrieval import augment_candidates
 from rag_engine.http import post_json
 from rag_engine.lexical import encode_sparse
 from rag_engine.models import Hit, RetrievalRequest, RetrievalResponse
@@ -15,7 +16,11 @@ from rag_engine.sparse_index import SparseIndex
 
 
 async def retrieve(
-    request: RetrievalRequest, tenant: str, settings: Settings, client: httpx.AsyncClient
+    request: RetrievalRequest,
+    tenant: str,
+    settings: Settings,
+    client: httpx.AsyncClient,
+    graph_repository=None,
 ) -> RetrievalResponse:
     if not settings.qdrant_url or not settings.qwen_base_url or not settings.qwen_api_key.get_secret_value():
         raise EngineError("RETRIEVAL_NOT_CONFIGURED", 503)
@@ -65,6 +70,8 @@ async def retrieve(
             seen.add(identity)
     if not hits:
         return RetrievalResponse(hits=[], mode=mode, degraded=degraded)
+    graph = await augment_candidates(hits, request, tenant, settings, client, graph_repository)
+    hits = graph.hits
     try:
         # 重排超时可回退已获得的向量排序，但整个请求仍受外层 3 秒总预算限制。
         async with asyncio.timeout(settings.rerank_timeout_seconds):
@@ -105,4 +112,10 @@ async def retrieve(
     except (TimeoutError, httpx.HTTPError, EngineError, KeyError, TypeError, ValueError):
         degraded = True
         hits.sort(key=lambda item: item.score, reverse=True)
-    return RetrievalResponse(hits=hits[: request.topK], mode=mode, degraded=degraded)
+    return RetrievalResponse(
+        hits=hits[: request.topK],
+        mode=mode,
+        degraded=degraded,
+        graphAugmented=graph.augmented,
+        graphDegraded=graph.degraded,
+    )

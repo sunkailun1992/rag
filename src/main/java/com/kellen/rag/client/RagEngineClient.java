@@ -6,6 +6,12 @@ import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.KnowledgeChunkDraft;
 import com.kellen.rag.model.ParsedKnowledgeDocument;
 import com.kellen.rag.model.VectorSearchHit;
+import com.kellen.rag.model.ActiveGraphSource;
+import com.kellen.rag.model.GraphRemovalFence;
+import com.kellen.rag.model.KnowledgeGraphViewMode;
+import com.kellen.rag.entity.enums.RagGraphNodeType;
+import com.kellen.rag.entity.vo.GraphBuildVO;
+import com.kellen.rag.entity.vo.RagKnowledgeGraphVO;
 import com.kellen.utils.context.TenantContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -18,6 +24,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -52,6 +59,69 @@ public class RagEngineClient {
 
     public boolean isParseEnabled() { return properties.isParseEnabled(); }
     public boolean isRetrievalEnabled() { return properties.isRetrievalEnabled(); }
+    public boolean isGraphEnabled() { return properties.isGraphEnabled(); }
+
+    /** 提交有界活动来源快照；返回任务接收状态，不能视为图谱完成。 */
+    public GraphBuildVO buildGraph(String knowledgeBase, List<ActiveGraphSource> sources, boolean reconcile) {
+        return buildGraph(knowledgeBase, sources, reconcile, null);
+    }
+
+    /** 补偿票据只能由删除失败链路提供，不属于公开同步协议。 */
+    public GraphBuildVO buildGraph(String knowledgeBase, List<ActiveGraphSource> sources, boolean reconcile,
+                                    GraphRemovalFence fence) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("knowledgeBase", knowledgeBase);
+        body.put("activeSources", sources);
+        body.put("reconcile", reconcile);
+        if (fence != null) body.put("restoreFence", fence);
+        JsonNode result = request("/v1/graphs/builds", body, graphTimeout());
+        return GraphEngineResponseValidator.build(result, requireTenant(), knowledgeBase);
+    }
+
+    /** 查询只接受 Java 已授权的活动来源，响应逐源重新校验，丢弃未知属性。 */
+    public RagKnowledgeGraphVO queryGraph(String knowledgeBase, List<ActiveGraphSource> sources,
+                                          String searchText, RagGraphNodeType nodeType,
+                                          KnowledgeGraphViewMode viewMode, int limit) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("knowledgeBase", knowledgeBase);
+        body.put("activeSources", sources);
+        if (searchText != null) body.put("searchText", searchText);
+        if (nodeType != null) body.put("nodeType", nodeType.name());
+        body.put("viewMode", viewMode.name());
+        body.put("limit", limit);
+        JsonNode result = request("/v1/graphs/queries", body, graphTimeout());
+        return GraphEngineResponseValidator.graph(result, requireTenant(), knowledgeBase, viewMode, limit, sources);
+    }
+
+    /** 删除屏障成功后才能修改权威向量状态，失败时不放行后续删除。 */
+    public GraphRemovalFence deactivateGraphDocument(String documentId, long documentRevision) {
+        JsonNode result = request("/v1/graphs/deactivations", Map.of("documentId", documentId,
+                "documentRevision", documentRevision), graphTimeout());
+        require(result.path("deactivated").isBoolean() && result.path("deactivated").asBoolean());
+        JsonNode epoch = result.path("barrierEpoch");
+        JsonNode revision = result.path("documentRevision");
+        require(epoch.isIntegralNumber() && epoch.canConvertToLong() && epoch.asLong() > 0
+                && revision.isIntegralNumber() && revision.canConvertToLong()
+                && revision.asLong() >= documentRevision && revision.asLong() >= 0);
+        return new GraphRemovalFence(documentId, epoch.asLong(), revision.asLong());
+    }
+
+    /** 任务 ID 和知识库进入 URI 前白名单校验，不提供任意上游请求能力。 */
+    public GraphBuildVO graphBuild(String buildId, String knowledgeBase) {
+        if (buildId == null || !buildId.matches("[A-Za-z0-9_-]{1,64}")
+                || knowledgeBase == null || !knowledgeBase.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new IllegalArgumentException("图谱任务或知识库编码不合法");
+        }
+        JsonNode result = request("GET", "/v1/graphs/builds/" + buildId + "?knowledgeBase=" + knowledgeBase,
+                null, bounded(properties.getGraphStatusTimeoutMillis(), 100, 30000));
+        GraphBuildVO build = GraphEngineResponseValidator.build(result, requireTenant(), knowledgeBase);
+        require(buildId.equals(build.buildId()));
+        return build;
+    }
+
+    private int graphTimeout() {
+        return bounded(properties.getGraphTimeoutMillis(), 100, 60000);
+    }
 
     /** 只转发新格式，保留经 Java 规范化后的文件名及页块定位。 */
     public ParsedKnowledgeDocument parse(String sourceName, String title, String extension, byte[] bytes) {
@@ -144,6 +214,10 @@ public class RagEngineClient {
     }
 
     private JsonNode request(String path, Object body, int timeoutMillis) {
+        return request("POST", path, body, timeoutMillis);
+    }
+
+    private JsonNode request(String method, String path, Object body, int timeoutMillis) {
         CompletableFuture<HttpResponse<byte[]>> pending = null;
         try {
             String tenant = requireTenant();
@@ -154,10 +228,15 @@ public class RagEngineClient {
             require(Set.of("http", "https").contains(base.getScheme()) && base.getHost() != null
                     && base.getUserInfo() == null && base.getQuery() == null && base.getFragment() == null
                     && (base.getPath().isEmpty() || base.getPath().equals("/")));
+            byte[] encoded = body == null ? new byte[0] : mapper.writeValueAsString(body).getBytes(StandardCharsets.UTF_8);
+            if (path.startsWith("/v1/graphs/") && encoded.length > 8 * 1024 * 1024) {
+                throw new IllegalArgumentException("图谱活动来源快照超过 8 MiB 上限");
+            }
             HttpRequest request = HttpRequest.newBuilder(base.resolve(path))
                     .timeout(Duration.ofMillis(timeoutMillis)).header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + properties.getApiKey()).header("X-Tenant-Id", tenant)
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
+                    .method(method, body == null ? HttpRequest.BodyPublishers.noBody()
+                            : HttpRequest.BodyPublishers.ofByteArray(encoded)).build();
             pending = http.sendAsync(request, info -> new LimitedBody(bounded(properties.getMaxResponseBytes(),
                     1024, 32 * 1024 * 1024)));
             HttpResponse<byte[]> response = pending.get(timeoutMillis, TimeUnit.MILLISECONDS);

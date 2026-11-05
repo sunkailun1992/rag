@@ -10,7 +10,8 @@ public enum RagGraphNodeType implements IEnum<String> {
     DOCUMENT,
     SECTION,
     RECORD,
-    CONCEPT;
+    CONCEPT,
+    ENTITY;
 
     @Override
     public String getValue() {

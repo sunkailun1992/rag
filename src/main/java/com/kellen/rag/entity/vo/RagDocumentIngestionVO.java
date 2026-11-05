@@ -9,6 +9,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record RagDocumentIngestionVO(
         RagDocumentVO document,
         boolean idempotent,
-        RagDocumentValidationVO validation
+        RagDocumentValidationVO validation,
+        RagGraphSyncVO graphBuild,
+        String graphStatus
 ) {
+    public RagDocumentIngestionVO(RagDocumentVO document, boolean idempotent,
+                                   RagDocumentValidationVO validation) {
+        this(document, idempotent, validation, null, null);
+    }
 }

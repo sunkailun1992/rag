@@ -71,3 +71,13 @@ class RetrievalResponse(Contract):
     degraded: bool = Field(
         default=False, description="重排失败或词法不可用时标记；重排失败的候选未通过独立相关性门槛。"
     )
+    graphAugmented: bool = Field(
+        default=False,
+        exclude_if=lambda value: value is False,
+        description="已发布图关联扩展且通过活动Qdrant原文复核的新候选参与本次重排；缺省false。",
+    )
+    graphDegraded: bool = Field(
+        default=False,
+        exclude_if=lambda value: value is False,
+        description="可选图服务超时、不可用或来源已变化；保留原向量召回与相关性重排；缺省false。",
+    )
