@@ -4,10 +4,12 @@ import asyncio
 import base64
 import binascii
 import json
+import logging
 import math
 import os
 import re
 import sys
+import time
 
 import httpx
 
@@ -16,8 +18,12 @@ from rag_engine.errors import EngineError
 from rag_engine.http import post_json
 from rag_engine.models import Chunk, ParseRequest, ParseResponse
 
+logger = logging.getLogger("rag_engine")
+
 
 async def run_worker(payload: dict, settings: Settings) -> dict:
+    phase = "split" if payload.get("operation") == "split" else "inspect"
+    started = time.monotonic()
     # 限制 BLAS 线程，避免导入 LlamaIndex/numpy 时放大子进程虚拟内存与 CPU。
     environment = {**os.environ, "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"}
     process = await asyncio.create_subprocess_exec(
@@ -32,14 +38,36 @@ async def run_worker(payload: dict, settings: Settings) -> dict:
     try:
         output, _ = await asyncio.wait_for(
             process.communicate(json.dumps(payload).encode()),
-            min(settings.parse_timeout_seconds, 25),
+            # 使用解析预算；API 外层 deadline 仍统管 inspect、OCR、split，不能逐阶段累加。
+            settings.parse_timeout_seconds,
         )
         if process.returncode != 0:
+            logger.warning(
+                "rag_parser_worker_failed phase=%s reason=exit exit_code=%d elapsed_ms=%d",
+                phase,
+                process.returncode,
+                (time.monotonic() - started) * 1000,
+            )
             raise EngineError("PARSER_RESOURCE_LIMIT", 422)
         result = json.loads(output)
         if "error" in result:
             raise EngineError(result["error"], 422)
         return result["result"]
+    except TimeoutError:
+        logger.warning(
+            "rag_parser_worker_failed phase=%s reason=timeout elapsed_ms=%d",
+            phase,
+            (time.monotonic() - started) * 1000,
+        )
+        raise
+    except asyncio.CancelledError:
+        # 外层总 deadline 或请求取消会到这里；不能把所有取消都误记为子阶段超时。
+        logger.warning(
+            "rag_parser_worker_failed phase=%s reason=cancelled elapsed_ms=%d",
+            phase,
+            (time.monotonic() - started) * 1000,
+        )
+        raise
     except (json.JSONDecodeError, KeyError) as error:
         raise EngineError("PARSER_FAILED", 422) from error
     finally:

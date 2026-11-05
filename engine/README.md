@@ -46,10 +46,11 @@ uv run --frozen uvicorn rag_engine.app:create_app --factory --host 127.0.0.1 --p
 ## 安全与兼容限制
 
 - 文件以 base64 内存传递，不接受远程文件 URL 或磁盘路径。检查真实文件格式、大小、图片像素、PDF 加密、页数、展开体积、总文本和切片数。
-- PDF 检查和 LlamaIndex 切片均在一次性子进程运行；取消/超时杀死进程，子进程有 CPU 限制，Linux 另有 768 MiB 虚拟内存限制。Docker 内存限制覆盖整个服务。ASGI 不运行 PDF/切片 CPU 任务。
+- PDF 检查和 LlamaIndex 切片均在一次性子进程运行；取消/超时杀死并回收进程。各子阶段的墙钟等待使用解析预算，取消旧的固定 25 秒截断；`/v1/parses` 的外层总 deadline 仍覆盖检查、OCR、切片，阶段预算不累加。子进程 CPU 软/硬限仍为 20/21 秒，Linux 虚拟内存仍限 768 MiB，Docker 限额不变。ASGI 不运行 PDF/切片 CPU 任务。
 - 任何页缺失、限额超出或文档无文字都拒绝整份文档。含空白页或栅格图片的 PDF 会进入 OCR 路径；OCR 页数必须与 PDF 一致，每页必须有可识别文字。完全空白页也会明确拒绝，调用方需移除空白页后重试，不做静默缺页导入。
 - 解析无服务端无限等待队列；只允许配置数量的并发。请求体、上游响应也有硬大小上限；不信任 `Content-Length`。Uvicorn 启动限制 16 个并发连接，防止解析排队前累积过多大请求体。
 - 上游地址只来自配置，禁用环境代理、重定向及 URL 认证字段。没有请求端点可改配置、执行迁移或写向量。
+- worker 超时、取消和非零退出仅记录白名单阶段 `inspect/split`、受控原因、耗时及退出码；不记录文件名、正文、异常原文或凭据。外层总 deadline 触发的取消明确标为 `cancelled`，不误报为子阶段独立超时。
 - 总检索预算最多 3 秒，Java HTTP 建议 3500ms，保留原 `ai` Dubbo 5 秒预算。长文档解析使用独立预算，建议引擎 55 秒、Java 60 秒。OCR HTTP 单独使用解析预算作为读取等待上限，避免 NAS CPU 推理被共享 HTTP client 的 10 秒默认读取超时提前中断；连接最多 3 秒、连接池最多 1 秒、写入最多 10 秒，且均不超过解析总预算。读取超时不是整次请求预算，外层总 deadline 仍覆盖文件检查、OCR 和切片，慢响应持续发送也不能延长它。其他 JSON 请求继续继承各自 client 默认超时。
 - `RAG_ENGINE_COLLECTION`、embedding 模型和维度必须与 Java 摄取完全相同。服务请求不创建/迁移 collection，不重嵌入历史文档；CLI 只在显式 `--apply` 时增加 sparse schema 或值。
 - 启用混合检索前须完成：Qdrant schema 兼容验证、显式全量 backfill、Java 新写入/换版/删除同步、完整性读回和评估。不能扫描前 N 条数据冒充全库关键词检索。
@@ -91,7 +92,7 @@ uv run --frozen ruff format --check src tests scripts
 uv run --frozen pytest -q
 ```
 
-默认测试使用现场合成的 PDF、图片、租户和随机凭据；PaddleOCR/千问/Qdrant 使用受控 HTTP 替身，不访问付费模型或真实知识库。`tests/test_qdrant_live.py` 可通过 `RAG_TEST_QDRANT_URL` 显式启用；只创建唯一 `rag_engine_acceptance_*` 临时 collection，并在 finally 删除，千问仍用替身。测试覆盖真实文件解析、页数/格式/加密边界、进程回收、OCR 协议、请求鉴权、错误脱敏、租户隔离、模型维度一致性和超时/降级。OCR 超时回归另启动真实本地 HTTP 服务：延迟响应超过共享 client 短读取超时仍能解析；普通 JSON 调用保留原超时；超出解析总预算则返回 `PARSER_TIMEOUT`。
+默认测试使用现场合成的 PDF、图片、租户和随机凭据；PaddleOCR/千问/Qdrant 使用受控 HTTP 替身，不访问付费模型或真实知识库。`tests/test_qdrant_live.py` 可通过 `RAG_TEST_QDRANT_URL` 显式启用；只创建唯一 `rag_engine_acceptance_*` 临时 collection，并在 finally 删除，千问仍用替身。测试覆盖真实文件解析、页数/格式/加密边界、进程回收、OCR 协议、请求鉴权、错误脱敏、租户隔离、模型维度一致性和超时/降级。worker 预算回归另让真实 split 子进程等待 26 秒后执行原 worker，验证它能在总 55 秒内成功；短总 deadline 则验证真实进程被 SIGKILL 并回收，日志不泄漏请求内容。OCR 超时回归另启动真实本地 HTTP 服务：延迟响应超过共享 client 短读取超时仍能解析；普通 JSON 调用保留原超时；超出解析总预算则返回 `PARSER_TIMEOUT`。
 
 开发时另跑过 localhost 真 HTTP：启动实际 Uvicorn，未认证解析得到 401，合成 PDF 解析得到 200，文本及页码读回匹配。另在 Qdrant 1.18.1 临时库验证了旧 unnamed dense 添加 sparse、140 条记录分 3 页完整回填、dense 值不变、跨租户隔离、sparse-only 召回、RRF 排序及旧单写使 readiness 失效。真实 OCR 推理质量、模型端点与跨主机 TLS 仍需部署环境验收；不能以这些测试声称检索质量提升或 OCR 已部署。
 
