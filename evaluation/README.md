@@ -110,7 +110,7 @@ python3 -m evaluation.live_compare
 | `RAG_ENGINE_EMBEDDING_MODEL` | 可选，默认 `text-embedding-v4`；摄取与查询共用 |
 | `RAG_ENGINE_EMBEDDING_DIMENSION` | 可选，默认 `1024`；临时集合与模型维度一致 |
 | `RAG_ENGINE_RERANK_MODEL` | 可选，默认 `qwen3-rerank` |
-| `RAG_ENGINE_RERANK_SCORE_THRESHOLD` | 可选，默认 `0.2`；两种模式使用同一 rerank 相关度阈值，实值记录到报告 |
+| `RAG_ENGINE_RERANK_SCORE_THRESHOLD` | 可选，默认 `0.5`；两种模式使用同一 rerank 相关度阈值，实值记录到报告 |
 
 不需要现有引擎服务的 `RAG_ENGINE_API_KEY`；脚本不监听端口。既有 `RAG_ENGINE_COLLECTION` 不会被采用，临时名称只由脚本生成且必须匹配 `rag_eval_<32位随机十六进制>`，没有指定任意 collection 的命令参数。不会访问、修改或删除 `ai_chat_files`，也不调整 Nacos。
 

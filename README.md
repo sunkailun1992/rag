@@ -8,7 +8,7 @@
 
 ## Python 引擎演进
 
-本批 Java 版本为 `1.1.2`，新增同仓独立的 [`engine/`](engine/README.md)。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入及图谱；现有 HTTP 和 Dubbo 契约保持。
+本批 Java 版本为 `1.1.3`，新增同仓独立的 [`engine/`](engine/README.md)。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入及图谱；现有 HTTP 和 Dubbo 契约保持。
 
 - 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
 - `rag.engine.retrieval-enabled` 默认 false。开启后使用 Python 检索，失败不叠加旧查询；关闭可恢复 Java 检索。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
@@ -62,7 +62,11 @@ python3 scripts/verify-rag-engine.py
 - **摄取**：当前默认接收 XLSX 和 DOCX；启用解析引擎后增加 PDF/PNG/JPEG；XLSX 按“工作表 + 完整表头 + 单行记录”切片，DOCX 按标题段落和表格行切片，再 embedding 并写入 Qdrant。摄取侧与查询侧固定使用同 embedding 模型、同维度。
 - **能力暴露**：当前先提供 `RagRetrievalRpcService` 和 `/api/rag/retrievals` HTTP 边界；后续再补 `knowledge_search` 等 MCP 工具 + Nacos AI Registry AgentCard 注册，供 fleet 内任意 agent 复用。
 - **知识库管理**：Qdrant payload 显式保存租户、知识库、文档版本、来源、文件/内容指纹和重复行位置。相同文件幂等，同编码新内容生成新版本；文档内语义相同且仅序号/行号不同的记录合并向量，但保留全部定位信息。
-- **知识图谱**：从活动向量切片确定性投影文档、工作表、记录和概念关系；图谱表是可重建派生索引，不让模型猜测关系，稳定节点/边编码便于后续迁移到 Neo4j。
+- **知识图谱**：从活动向量切片确定性投影文档、章节/工作表/页面/图片、记录/区块和概念关系；图谱表是可重建派生索引，不让模型猜测关系，稳定节点/边编码便于后续迁移到 Neo4j。PDF/图片原文没有 `- 字段: 值` 结构时只产生来源结构，不自动猜测实体或关系；关系总览会将这类无概念边的文档与已有概念网络一起纳入节点预算。
+
+图谱节点 `properties` 保留原有字段：文档有 `documentCode/documentVersion`，章节有 `sectionPath`，记录有 `chunkId/chunkType/sectionPath`。有来源数据时，文档、章节和记录增加 `sourceName/sourceType`；记录增加白名单 `sourceMetadata`（`page/bbox/block_type/ocr_capabilities`），章节只增加页码，区块坐标不代表整页坐标。OCR 能力仅发布 `textRecognition/tableStructure/layoutAnalysis` 布尔值，不透传任意解析元数据。旧文档字段缺失时保持可读；历史图谱需通过现有同步接口从活动向量重建才能补齐来源属性，无需重新 embedding。
+
+图谱搜索及节点类型筛选继续表示“命中节点与相邻关系”，邻居可以是其他类型；命中节点优先占用节点预算。无筛选总览交替纳入文档与概念关系，超出节点或关系上限时设置 `truncated=true`，不保证截断结果涵盖全库。接口、租户/知识库过滤、节点/边稳定 ID 和关系类型保持兼容。
 
 公共工具、认证上下文、多租户、统一返回、统一异常、数据权限、MyBatis-Plus 公共配置等能力不在本服务重复实现，统一复用同级 `utils` 项目。
 

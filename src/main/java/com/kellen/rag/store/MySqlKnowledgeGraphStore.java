@@ -128,13 +128,18 @@ public class MySqlKnowledgeGraphStore implements KnowledgeGraphStore {
     public KnowledgeGraphSnapshot query(KnowledgeGraphQuery query) {
         requireCurrentTenant(query.tenantId());
         int edgeLimit = Math.min(query.limit() * 4, 2000);
-        List<RagGraphNode> matchedNodes = StringUtils.hasText(query.searchText())
-                || query.nodeType() != null ? findMatchedNodes(query, Math.min(query.limit(), 80)) : List.of();
-        List<RagGraphEdge> candidateEdges = findEdges(query, matchedNodes, edgeLimit);
-        PrunedGraph pruned = prune(candidateEdges, query.limit());
+        boolean filtered = StringUtils.hasText(query.searchText()) || query.nodeType() != null;
+        List<RagGraphNode> matchedNodes = filtered ? findMatchedNodes(query, query.limit() + 1) : List.of();
+        List<RagGraphNode> documents = !filtered && query.viewMode() == KnowledgeGraphViewMode.OVERVIEW
+                ? findMatchedNodes(new KnowledgeGraphQuery(query.tenantId(), query.knowledgeBase(), null,
+                RagGraphNodeType.DOCUMENT, query.viewMode(), query.limit()), query.limit() + 1) : List.of();
+        List<RagGraphEdge> candidateEdges = findEdges(query, matchedNodes, edgeLimit + 1);
+        // 搜索先保留命中节点；无筛选总览交替选择文档和关系，不能因别的文档有概念而隐藏无边文档。
+        List<String> preferredIds = (filtered ? matchedNodes : documents).stream().map(RagGraphNode::getId).toList();
+        PrunedGraph pruned = prune(candidateEdges.stream().limit(edgeLimit).toList(), query.limit(), preferredIds, filtered);
 
         List<RagGraphNode> nodes = pruned.nodeIds().isEmpty()
-                ? findMatchedNodes(query, query.limit())
+                ? filtered ? matchedNodes : findMatchedNodes(query, query.limit() + 1)
                 : nodeMapper.selectByIds(pruned.nodeIds());
         Set<String> returnedIds = new LinkedHashSet<>();
         List<KnowledgeGraphNode> graphNodes = nodes.stream()
@@ -153,7 +158,7 @@ public class MySqlKnowledgeGraphStore implements KnowledgeGraphStore {
                         && returnedIds.contains(edge.getTargetNodeId()))
                 .map(this::fromEntity)
                 .toList();
-        boolean truncated = candidateEdges.size() >= edgeLimit
+        boolean truncated = candidateEdges.size() > edgeLimit
                 || pruned.truncated() || nodes.size() > graphNodes.size();
         return new KnowledgeGraphSnapshot(graphNodes, graphEdges, truncated);
     }
@@ -197,11 +202,25 @@ public class MySqlKnowledgeGraphStore implements KnowledgeGraphStore {
                 .last("LIMIT " + Math.max(1, limit)));
     }
 
-    private PrunedGraph prune(List<RagGraphEdge> edges, int nodeLimit) {
+    private PrunedGraph prune(List<RagGraphEdge> edges, int nodeLimit, List<String> preferredIds,
+                              boolean matchesFirst) {
         LinkedHashSet<String> nodeIds = new LinkedHashSet<>();
         List<RagGraphEdge> accepted = new ArrayList<>();
         boolean truncated = false;
+        int preferredIndex = 0;
+        if (matchesFirst) {
+            for (String id : preferredIds) {
+                if (nodeIds.size() < nodeLimit || nodeIds.contains(id)) nodeIds.add(id);
+                else truncated = true;
+            }
+            preferredIndex = preferredIds.size();
+        }
         for (RagGraphEdge edge : edges) {
+            if (preferredIndex < preferredIds.size()) {
+                String id = preferredIds.get(preferredIndex++);
+                if (nodeIds.size() < nodeLimit || nodeIds.contains(id)) nodeIds.add(id);
+                else truncated = true;
+            }
             int additions = (nodeIds.contains(edge.getSourceNodeId()) ? 0 : 1)
                     + (nodeIds.contains(edge.getTargetNodeId()) ? 0 : 1);
             if (nodeIds.size() + additions > nodeLimit) {
@@ -211,6 +230,11 @@ public class MySqlKnowledgeGraphStore implements KnowledgeGraphStore {
             nodeIds.add(edge.getSourceNodeId());
             nodeIds.add(edge.getTargetNodeId());
             accepted.add(edge);
+        }
+        for (; preferredIndex < preferredIds.size(); preferredIndex++) {
+            String id = preferredIds.get(preferredIndex);
+            if (nodeIds.size() < nodeLimit || nodeIds.contains(id)) nodeIds.add(id);
+            else truncated = true;
         }
         return new PrunedGraph(List.copyOf(nodeIds), accepted, truncated);
     }

@@ -114,6 +114,9 @@ public class RagEngineClient {
                 "maxContextCharacters", contextLimit), bounded(properties.getRetrievalTimeoutMillis(), 100, 3500));
         // 只有明确的 dense/hybrid 模式可进入原有 RPC 契约；隔离校验对两种模式完全相同。
         require(Set.of("dense", "hybrid").contains(response.path("mode").asText()));
+        // RPC 不携带降级标记，不能把未获相关性保证的候选当正常上下文；缺失沿用协议默认 false。
+        JsonNode degraded = response.path("degraded");
+        require(degraded.isMissingNode() || (degraded.isBoolean() && !degraded.asBoolean()));
         JsonNode hits = response.path("hits");
         require(hits.isArray() && hits.size() <= topK);
         List<VectorSearchHit> output = new ArrayList<>();

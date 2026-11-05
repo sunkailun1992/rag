@@ -4,6 +4,9 @@ import com.kellen.rag.config.RagEngineProperties;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.ParsedKnowledgeDocument;
+import com.kellen.rag.service.impl.DefaultRagRetrievalService;
+import com.kellen.rpc.rag.RagRetrievalRpcDTO;
+import com.kellen.rpc.rag.RagRetrievalRpcRequest;
 import com.kellen.utils.context.TenantContextHolder;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -14,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.ObjectMapper;
 
 import java.net.InetSocketAddress;
@@ -28,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * 独立契约验证：真实 Spring Bean 经本机 HTTP 检查服务认证、可信租户、响应校验与总时限。
@@ -45,6 +50,10 @@ class RagEngineContractIntegrationTest {
     @Autowired private RagEngineProperties engine;
     @Autowired private RagVectorProperties vector;
     @Autowired private ObjectMapper mapper;
+    @Autowired private DefaultRagRetrievalService retrievalService;
+    @MockitoBean private EmbeddingClient embedding;
+    @MockitoBean private VectorStoreClient vectors;
+    @MockitoBean private RerankClient reranker;
     private HttpServer server;
     private ExecutorService executor;
     private String tenant;
@@ -57,7 +66,8 @@ class RagEngineContractIntegrationTest {
     private final AtomicInteger requests = new AtomicInteger();
 
     @Configuration(proxyBeanMethods = false)
-    @Import({RagEngineClient.class, RagEngineProperties.class, RagVectorProperties.class})
+    @Import({RagEngineClient.class, RagEngineProperties.class, RagVectorProperties.class,
+            DefaultRagRetrievalService.class})
     static class TestConfig {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
     }
@@ -101,6 +111,8 @@ class RagEngineContractIntegrationTest {
         engine.setMaxResponseBytes(1024 * 1024);
         engine.setMaxChunks(5000);
         vector.setMaxChunkCharacters(6000);
+        vector.setEnabled(true);
+        vector.setDefaultKnowledgeBase("contract-test");
     }
 
     @AfterEach
@@ -117,6 +129,65 @@ class RagEngineContractIntegrationTest {
         assertThat(header("X-Tenant-Id")).isEqualTo(tenant);
         assertThat(requestBody).contains("\"knowledgeBase\":\"contract-test\"");
         assertThat(requestBody).doesNotContain(key).doesNotContain("tenantId");
+    }
+
+    @Test
+    void shouldReturnUnavailableInsteadOfContextWhenEngineHitsAreDegraded() throws Exception {
+        for (String mode : List.of("dense", "hybrid")) {
+            response = mapper.writeValueAsString(Map.of("mode", mode, "degraded", true,
+                    "hits", List.of(hit(validPayload()))));
+
+            RagRetrievalRpcDTO result = retrieveThroughService();
+
+            assertThat(result.isEnabled()).isTrue();
+            assertThat(result.isMatched()).isFalse();
+            assertThat(result.getMessage()).isEqualTo("RAG retrieval is temporarily unavailable");
+            assertThat(result.getContext()).isEmpty();
+            assertThat(result.getChunks()).isEmpty();
+            assertThat(result.getSourceCount()).isZero();
+        }
+        assertThat(requests.get()).isEqualTo(2);
+        verifyNoInteractions(embedding, vectors, reranker);
+    }
+
+    @Test
+    void shouldKeepNonDegradedDenseAndHybridHitsCompatibleWithRpc() throws Exception {
+        for (String mode : List.of("dense", "hybrid")) {
+            response = mapper.writeValueAsString(Map.of("mode", mode, "degraded", false,
+                    "hits", List.of(hit(validPayload()))));
+
+            RagRetrievalRpcDTO result = retrieveThroughService();
+
+            assertThat(result.isMatched()).isTrue();
+            assertThat(result.getMessage()).isEqualTo("ok");
+            assertThat(result.getContext()).contains("Synthetic fixture paragraph");
+            assertThat(result.getChunks()).hasSize(1);
+        }
+        verifyNoInteractions(embedding, vectors, reranker);
+    }
+
+    @Test
+    void shouldUseContractDefaultWhenDegradedFlagIsAbsent() throws Exception {
+        response = mapper.writeValueAsString(Map.of("mode", "dense", "hits", List.of(hit(validPayload()))));
+
+        RagRetrievalRpcDTO result = retrieveThroughService();
+
+        assertThat(result.isMatched()).isTrue();
+        assertThat(result.getMessage()).isEqualTo("ok");
+        assertThat(result.getContext()).contains("Synthetic fixture paragraph");
+        verifyNoInteractions(embedding, vectors, reranker);
+    }
+
+    @Test
+    void shouldRejectMalformedDegradedFlagInsteadOfCoercingIt() throws Exception {
+        for (Object flag : new Object[]{null, "false", "true", 0, Map.of()}) {
+            Map<String, Object> body = new LinkedHashMap<>(retrievalResponse());
+            body.put("degraded", flag);
+            response = mapper.writeValueAsString(body);
+
+            assertThatThrownBy(this::retrieve).isInstanceOf(ExternalServiceException.class)
+                    .hasMessageNotContaining("Synthetic fixture paragraph").hasMessageNotContaining(key);
+        }
     }
 
     @Test
@@ -260,6 +331,12 @@ class RagEngineContractIntegrationTest {
     }
 
     private List<?> retrieve() { return client.retrieve("synthetic query", "contract-test", 6, 30, .2, 12000); }
+
+    private RagRetrievalRpcDTO retrieveThroughService() {
+        RagRetrievalRpcRequest request = new RagRetrievalRpcRequest();
+        request.setQuery("synthetic query");
+        return retrievalService.retrieve(request);
+    }
 
     private String header(String name) {
         return requestHeaders.entrySet().stream().filter(entry -> entry.getKey().equalsIgnoreCase(name))

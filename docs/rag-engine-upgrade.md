@@ -37,6 +37,8 @@ Qdrant 保留 unnamed dense vector；Java `hybrid-write-enabled` 打开时原子
 
 - `GET /api/rag/documents/{documentId}/chunks`：原管理权限、可信租户、有界游标分页；返回来源及页块 metadata，不返回向量和原始治理 payload。
 - admin-web 提供真实切片 Drawer 和浏览器本地脱敏评估报告读取；报告不上传服务器。
+- 图谱保持 MySQL 邻接表与现有 G6 页面，无需新增图数据库。PDF/图片使用页面、图片和区块语义，节点按白名单携带来源信息；总览保留没有概念关系的文档。历史图谱需从活动切片重新同步以补齐来源属性，不必重新 embedding。前端图谱可查看来源信息并在具备文档管理权限时打开切片。
+- Python 明确标记 `degraded=true` 时，Java 返回现有结构化检索不可用结果，不把未经重排相关度门槛保障的候选当作正常上下文。缺失标记沿用协议默认 `false`，错误类型失败关闭；外部 HTTP/Dubbo 契约不变。
 - CPU OCR 位于 `engine/ocr/`，真实 PaddleOCR 轻量模型只提供文字及坐标，能力标记明确排除完整表格/版面分析；本机真实中文 PNG/扫描 PDF 验证通过，约 1 GiB 峰值。NAS 按 2 GiB/2 CPU 硬限额部署，x86 容器结果单独验收。
 - rag-engine 限制 1.5 GiB/1 CPU。沿用 Qdrant 与千问；不为评估增加常驻 Langfuse 数据库等重服务。离线/真实评估输出可追溯指标，未生成答案时不声称已测 Ragas faithfulness。
 - Java/Python sparse golden 与独立风险反例覆盖编码、分页、schema、凭据脱敏。Git/CI、NAS镜像、Nacos启用和实际质量评估分别记录，不能互相替代。

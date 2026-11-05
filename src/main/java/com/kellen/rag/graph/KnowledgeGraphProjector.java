@@ -53,10 +53,12 @@ public class KnowledgeGraphProjector {
 
         LinkedHashMap<String, KnowledgeGraphNode> nodes = new LinkedHashMap<>();
         LinkedHashMap<String, KnowledgeGraphEdge> edges = new LinkedHashMap<>();
+        Map<String, Object> documentProperties = sourceProperties(first);
+        documentProperties.put("documentCode", documentCode);
+        documentProperties.put("documentVersion", documentVersion);
         KnowledgeGraphNode document = node(tenantId, knowledgeBase, "document|" + documentId,
                 RagGraphNodeType.DOCUMENT, documentTitle, "文档", documentId, documentCode,
-                documentVersion, null, Map.of("documentCode", documentCode,
-                        "documentVersion", documentVersion), 10);
+                documentVersion, null, documentProperties, 10);
         nodes.put(document.id(), document);
 
         int pointOrder = 0;
@@ -68,29 +70,43 @@ public class KnowledgeGraphProjector {
             String locator = limited(required(payload, "source_locator"), 255);
             String chunkType = required(payload, "chunk_type");
             LinkedHashMap<String, String> fields = parseFields(required(payload, "content"));
-            boolean wordChunk = chunkType.startsWith("docx-");
+            String sectionLabel = sectionLabel(payload, chunkType);
+            boolean pageChunk = sectionLabel.equals("页面") || sectionLabel.equals("图片");
+            Map<String, Object> metadata = sourceMetadata(payload);
+            Map<String, Object> sectionProperties = sourceProperties(payload);
+            sectionProperties.put("sectionPath", sectionPath);
+            // 区块坐标不能冒充整页坐标；章节节点只保留页码。
+            if (metadata.containsKey("page")) {
+                sectionProperties.put("sourceMetadata", Map.of("page", metadata.get("page")));
+            }
 
             KnowledgeGraphNode section = node(tenantId, knowledgeBase,
                     "section|" + documentId + "|" + normalizedKey(sectionPath),
-                    RagGraphNodeType.SECTION, sectionPath, wordChunk ? "章节" : "工作表",
+                    RagGraphNodeType.SECTION, sectionPath, sectionLabel,
                     documentId, documentCode,
-                    documentVersion, sectionPath, Map.of("sectionPath", sectionPath), 20);
+                    documentVersion, sectionPath, sectionProperties, 20);
             nodes.putIfAbsent(section.id(), section);
             addEdge(edges, edge(tenantId, knowledgeBase, document, section,
-                    RagGraphRelationType.CONTAINS, wordChunk ? "包含章节" : "包含工作表",
+                    RagGraphRelationType.CONTAINS, "包含" + sectionLabel,
                     documentId, documentCode,
-                    documentVersion, sectionPath, Map.of(), 10));
+                    documentVersion, sectionPath, Map.of(), 10,
+                    chunkType.startsWith("docx-") ? "包含章节" : "包含工作表"));
 
+            Map<String, Object> recordProperties = sourceProperties(payload);
+            recordProperties.put("chunkId", chunkId);
+            recordProperties.put("chunkType", chunkType);
+            recordProperties.put("sectionPath", sectionPath);
+            if (!metadata.isEmpty()) recordProperties.put("sourceMetadata", metadata);
             KnowledgeGraphNode record = node(tenantId, knowledgeBase,
                     "record|" + documentId + "|" + chunkId,
-                    RagGraphNodeType.RECORD, recordName(fields, locator), recordLabel(chunkType), documentId,
+                    RagGraphNodeType.RECORD, recordName(fields, locator), recordLabel(chunkType, pageChunk), documentId,
                     documentCode, documentVersion, locator,
-                    Map.of("chunkId", chunkId, "chunkType", chunkType, "sectionPath", sectionPath),
+                    recordProperties,
                     100 + pointOrder++);
             nodes.put(record.id(), record);
             addEdge(edges, edge(tenantId, knowledgeBase, section, record,
-                    RagGraphRelationType.CONTAINS, "包含记录", documentId, documentCode,
-                    documentVersion, locator, Map.of(), record.sorting()));
+                    RagGraphRelationType.CONTAINS, pageChunk ? "包含区块" : "包含记录", documentId, documentCode,
+                    documentVersion, locator, Map.of(), record.sorting(), "包含记录"));
 
             for (Map.Entry<String, String> field : fields.entrySet()) {
                 if (!isConcept(field.getKey(), field.getValue())) {
@@ -129,8 +145,18 @@ public class KnowledgeGraphProjector {
                                     RagGraphRelationType type, String label, String documentId,
                                     String documentCode, int documentVersion, String locator,
                                     Map<String, Object> properties, int sorting) {
+        return edge(tenantId, knowledgeBase, source, target, type, label, documentId, documentCode,
+                documentVersion, locator, properties, sorting, label);
+    }
+
+    private KnowledgeGraphEdge edge(String tenantId, String knowledgeBase,
+                                    KnowledgeGraphNode source, KnowledgeGraphNode target,
+                                    RagGraphRelationType type, String label, String documentId,
+                                    String documentCode, int documentVersion, String locator,
+                                    Map<String, Object> properties, int sorting, String identityLabel) {
+        // 显示名升级不能重编码既有 PDF/图片结构边；identityLabel 保持原投影的稳定键。
         String key = documentId + "|" + source.id() + "|" + target.id() + "|" + type
-                + "|" + normalizedKey(label);
+                + "|" + normalizedKey(identityLabel);
         String id = stableId("edge", tenantId + "|" + knowledgeBase + "|" + key);
         return new KnowledgeGraphEdge(id, id, source.id(), target.id(), type, limited(label, 255),
                 documentId, documentCode, documentVersion, limited(locator, 255),
@@ -178,12 +204,63 @@ public class KnowledgeGraphProjector {
                 .findFirst().orElse(locator);
     }
 
-    private String recordLabel(String chunkType) {
+    private String recordLabel(String chunkType, boolean pageChunk) {
         return switch (chunkType) {
             case "docx-paragraph" -> "知识段落";
             case "docx-table-row" -> "表格记录";
-            default -> "知识记录";
+            case "pdf-text" -> "文字区块";
+            case "ocr-text" -> "识别区块";
+            case "table" -> pageChunk ? "表格区块" : "知识记录";
+            default -> pageChunk ? "内容区块" : "知识记录";
         };
+    }
+
+    private String sectionLabel(Map<String, Object> payload, String chunkType) {
+        if (chunkType.startsWith("docx-")) return "章节";
+        String type = payload.get("source_type") instanceof String value ? value.toLowerCase(Locale.ROOT) : "";
+        if (Set.of("png", "jpg", "jpeg").contains(type)) return "图片";
+        if (type.equals("pdf") || chunkType.equals("pdf-text") || chunkType.equals("ocr-text")) return "页面";
+        return "工作表";
+    }
+
+    private Map<String, Object> sourceProperties(Map<String, Object> payload) {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        if (payload.get("source_name") instanceof String name && StringUtils.hasText(name)) {
+            properties.put("sourceName", limited(name, 255));
+        }
+        if (payload.get("source_type") instanceof String type && type.matches("[A-Za-z0-9_-]{1,32}")) {
+            properties.put("sourceType", type);
+        }
+        return properties;
+    }
+
+    /** 只发布来源定位字段；嵌套能力说明也按键和类型过滤，不能转发任意解析 payload。 */
+    private Map<String, Object> sourceMetadata(Map<String, Object> payload) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (!(payload.get("source_metadata") instanceof Map<?, ?> source)) return metadata;
+        if (source.get("page") instanceof Number page && Double.isFinite(page.doubleValue())
+                && page.doubleValue() > 0 && page.doubleValue() <= Integer.MAX_VALUE
+                && page.doubleValue() == page.intValue()) {
+            metadata.put("page", page.intValue());
+        }
+        if (source.get("block_type") instanceof String type && type.matches("[A-Za-z0-9_-]{1,64}")) {
+            metadata.put("block_type", type);
+        }
+        if (source.get("bbox") instanceof List<?> box && box.size() == 4
+                && box.stream().allMatch(value -> value instanceof Number number
+                && Double.isFinite(number.doubleValue()) && number.doubleValue() >= 0)
+                && ((Number) box.get(2)).doubleValue() >= ((Number) box.get(0)).doubleValue()
+                && ((Number) box.get(3)).doubleValue() >= ((Number) box.get(1)).doubleValue()) {
+            metadata.put("bbox", List.copyOf(box));
+        }
+        if (source.get("ocr_capabilities") instanceof Map<?, ?> capabilities) {
+            Map<String, Object> approved = new LinkedHashMap<>();
+            for (String key : List.of("textRecognition", "tableStructure", "layoutAnalysis")) {
+                if (capabilities.get(key) instanceof Boolean value) approved.put(key, value);
+            }
+            if (!approved.isEmpty()) metadata.put("ocr_capabilities", Map.copyOf(approved));
+        }
+        return Map.copyOf(metadata);
     }
 
     private void requireSameDocument(String tenantId, String knowledgeBase, String documentId,
