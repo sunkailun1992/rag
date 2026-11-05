@@ -18,7 +18,13 @@ from pydantic import Field
 from rag_engine.config import Settings
 from rag_engine.errors import VALIDATION_REASONS, EngineError
 from rag_engine.graph_models import ActiveGraphSource
-from rag_engine.graph_schema import StructuredOutputError, response_format, structured_to_triplet_array
+from rag_engine.graph_schema import (
+    QuoteRepairError,
+    StructuredOutputError,
+    build_quote_repair_plan,
+    response_format,
+    structured_to_triplet_array,
+)
 from rag_engine.graph_sources import digest, source_key
 from rag_engine.http import post_json
 
@@ -396,6 +402,39 @@ class ValidatedSimpleLLMPathExtractor(SimpleLLMPathExtractor):
                     failure = EngineError(error.code, 422)
                     failure.reason = reason
                     raise failure from None
+                if parsed_triplets is not None and reason == "ENTITY_NOT_IN_SOURCE":
+                    try:
+                        plan = build_quote_repair_plan(
+                            original.id_,
+                            original.get_content(metadata_mode=MetadataMode.NONE),
+                            parsed_triplets,
+                        )
+                        repair_llm = self.llm
+                        if isinstance(repair_llm, QwenGraphLLM):
+                            repair_llm = repair_llm.model_copy(
+                                update={"response_format_override": plan.response_format}
+                            )
+
+                        def repair_parse(output, repair_plan=plan):
+                            return self.parse_fn(repair_plan.decode(output))
+
+                        official_repair = SimpleLLMPathExtractor(
+                            llm=repair_llm,
+                            extract_prompt=PromptTemplate("{repair_data}").partial_format(
+                                repair_data=plan.prompt
+                            ),
+                            parse_fn=repair_parse,
+                            max_paths_per_chunk=self.max_paths_per_chunk,
+                            num_workers=1,
+                            raise_on_error=True,
+                        )
+                        repaired = await official_repair._aextract(original.model_copy(deep=True))
+                        validate_extracted_paths(repaired, self.max_paths_per_chunk)
+                        return repaired
+                    except (QuoteRepairError, GraphExtractionError) as repair_error:
+                        failure = EngineError(getattr(repair_error, "code", "GRAPH_EXTRACTION_INVALID"), 422)
+                        failure.reason = repair_error.reason
+                        raise failure from None
                 if parsed_triplets is not None and reason in {
                     "ENTITY_NOT_IN_SOURCE",
                     "FIELD_LENGTH",
@@ -418,6 +457,7 @@ class QwenGraphLLM(CustomLLM):
 
     settings: Any = Field(exclude=True, repr=False)
     client: Any = Field(exclude=True, repr=False)
+    response_format_override: Any = Field(default=None, exclude=True, repr=False)
 
     @property
     def metadata(self) -> LLMMetadata:
@@ -440,7 +480,9 @@ class QwenGraphLLM(CustomLLM):
                     "temperature": 0,
                     "max_tokens": 2048,
                     "enable_thinking": False,
-                    "response_format": response_format(self.settings.graph_max_triplets_per_chunk),
+                    "response_format": self.response_format_override
+                    if self.response_format_override is not None
+                    else response_format(self.settings.graph_max_triplets_per_chunk),
                 },
                 {"Authorization": "Bearer " + self.settings.qwen_api_key.get_secret_value()},
                 min(self.settings.max_upstream_bytes, 128 * 1024),
@@ -459,6 +501,9 @@ class QwenGraphLLM(CustomLLM):
             raise GraphExtractionError(
                 "GRAPH_EXTRACTION_INVALID", "MODEL_CONTENT", claimed_nonempty=_nonempty_claim(text)
             )
+        if self.response_format_override is not None:
+            # 当前片的官方parse_fn必须通过plan.decode；不让共享LLM持有可变repair状态。
+            return CompletionResponse(text=text)
         try:
             mapped = structured_to_triplet_array(text, self.settings.graph_max_triplets_per_chunk)
         except StructuredOutputError as error:
@@ -497,7 +542,7 @@ class ScopedGraphTransform(TransformComponent):
                 "document_version": identity.documentVersion,
                 "document_revision": identity.documentRevision,
                 "source_key": source_key(identity),
-                "extractor_version": "llama-json-schema-v3",
+                "extractor_version": "llama-json-schema-v4",
                 "extraction_method": "LLM_EXTRACTED",
                 "extraction_model": self.extraction_model,
             }

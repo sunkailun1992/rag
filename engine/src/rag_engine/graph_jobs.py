@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 
@@ -38,12 +39,26 @@ async def run_worker(payload, settings, remaining: float):
             raise EngineError("GRAPH_BUILD_FAILED")
         result = json.loads(stdout)
         if "error" in result:
+            code = result["error"]
             reason = result.get("reason")
-            if isinstance(reason, str) and reason in VALIDATION_REASONS:
-                logger.warning("rag_graph_validation_failed reason=%s", reason)
+            if type(reason) is str and reason in VALIDATION_REASONS:
+                source_hash = result.get("sourceHash")
+                if (
+                    type(code) is str
+                    and code
+                    in {"GRAPH_EXTRACTION_INVALID", "GRAPH_EXTRACTION_UNGROUNDED", "GRAPH_EXTRACTION_LIMIT"}
+                    and type(source_hash) is str
+                    and re.fullmatch(r"[0-9a-f]{64}", source_hash)
+                ):
+                    logger.warning(
+                        "rag_graph_validation_failed reason=%s source_hash=%s", reason, source_hash
+                    )
+                else:
+                    logger.warning("rag_graph_validation_failed reason=%s", reason)
             raise EngineError(
-                result["error"]
-                if result["error"]
+                code
+                if type(code) is str
+                and code
                 in {
                     "GRAPH_EXTRACTION_INVALID",
                     "GRAPH_EXTRACTION_UNGROUNDED",

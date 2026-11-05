@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import sys
 
 import httpx
@@ -11,6 +12,32 @@ from rag_engine.config import Settings
 from rag_engine.errors import VALIDATION_REASONS, EngineError
 from rag_engine.graph_models import GraphBuildRequest
 from rag_engine.graph_sources import digest, read_active_sources, source_key
+
+EXTRACTION_ERRORS = frozenset(
+    {"GRAPH_EXTRACTION_INVALID", "GRAPH_EXTRACTION_UNGROUNDED", "GRAPH_EXTRACTION_LIMIT"}
+)
+
+
+def with_source_diagnostics(extractor_type):
+    """只把应用生成的来源node哈希附到失败对象，不读取正文或模型字段。"""
+
+    class SourceDiagnosticExtractor(extractor_type):
+        async def _aextract(self, node):
+            node_id = getattr(node, "id_", None)
+            try:
+                return await super()._aextract(node)
+            except EngineError as error:
+                # 清除上游已有属性，指纹只能来自调用前的可信应用node身份。
+                if hasattr(error, "source_fingerprint"):
+                    del error.source_fingerprint
+                code = getattr(error, "code", None)
+                if type(code) is str and code in EXTRACTION_ERRORS and type(node_id) is str:
+                    match = re.fullmatch(r"c-([0-9a-f]{64})", node_id)
+                    if match:
+                        error.source_fingerprint = match.group(1)
+                raise
+
+    return SourceDiagnosticExtractor
 
 
 def source_text_node(source, tenant, kb, generation):
@@ -69,7 +96,7 @@ def build(payload: dict) -> dict:
     store = graph_store(settings)
     try:
         llm = QwenGraphLLM(settings=settings, client=client)
-        extractor = ValidatedSimpleLLMPathExtractor(
+        extractor = with_source_diagnostics(ValidatedSimpleLLMPathExtractor)(
             llm=llm,
             extract_prompt=EXTRACT_PROMPT,
             parse_fn=parse_triplets,
@@ -157,8 +184,16 @@ def main():
         code = str(error) if str(error) in allowed else "GRAPH_BUILD_FAILED"
         diagnostic = {"error": code}
         reason = getattr(error, "reason", None)
-        if isinstance(reason, str) and reason in VALIDATION_REASONS:
+        if type(reason) is str and reason in VALIDATION_REASONS:
             diagnostic["reason"] = reason
+            source_hash = getattr(error, "source_fingerprint", None)
+            if (
+                isinstance(error, EngineError)
+                and code in EXTRACTION_ERRORS
+                and type(source_hash) is str
+                and re.fullmatch(r"[0-9a-f]{64}", source_hash)
+            ):
+                diagnostic["sourceHash"] = source_hash
         print(json.dumps(diagnostic))
 
 
