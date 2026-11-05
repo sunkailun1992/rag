@@ -117,7 +117,7 @@ uv run --frozen pytest -q
 
 查询执行固定有界Cypher，读取当前文档激活generation，并检查所有端点、关系与来源的tenant/KB/point/版本身份。返回后再从Qdrant复核实际使用来源，Java还应再次检查当前活动快照。当前展示类型仅 `ENTITY/RELATED_TO`，同名实体在当前tenant+KB内聚合；旧结构类型过滤在新后端返回空，前端应隐藏不适用选项。所有节点和边有1至8条 `properties.sources`，并给出实际返回范围内的 `sourceCount/sourceTruncated`；来源保留identity、locator、按实体实际位置截取的证据及evidenceTruncated/evidenceNormalized标记，以及page/bbox/block_type/ocr_capabilities白名单与有限重复位置。properties.extractionMethod/model/models明确模型抽取身份；实体名字必须归一后实际出现于原文，不能把模型推测称为原文已证实关系。节点最多500、边最多min(配置,limit×4,2000)、响应最多8MiB，结果截断时不返回悬空端点。
 
-`RAG_ENGINE_GRAPH_RETRIEVAL_ENABLED=false` 独立关闭图检索增强。显式开启后，以已通过隔离校验的Qdrant候选为种子，仅沿当前激活generation和授权scope扩展同名实体关联的原文切片；图查询与Qdrant二次回读合计最多0.4秒，包含在原三秒总检索预算。扩展原文继续参与rerank及原相关性门槛，不直接把三元组当作上下文。响应graphAugmented表示实际加入新候选，graphDegraded表示扩展不可用/超时降级；图隔离或来源身份违规整次拒绝。未命中/无新候选不宣称增强成功。真实图参与检索仍需端点与业务语料验收。
+`RAG_ENGINE_GRAPH_RETRIEVAL_ENABLED=false` 独立关闭图检索增强。显式开启后，以已通过隔离校验的Qdrant候选为种子，仅沿当前激活generation和授权scope扩展同名实体关联的原文切片；图查询与Qdrant二次回读合计最多0.4秒，包含在原三秒总检索预算。扩展原文继续参与rerank及原相关性门槛，不直接把三元组当作上下文。响应graphAugmented表示实际加入新候选，graphDegraded表示扩展不可用/超时降级；图扩展候选的隔离或来源身份校验失败时丢弃不可信扩展并标记 graphDegraded，已验证的原向量路径保留；原向量召回身份校验失败仍使整个检索请求失败。未命中/无新候选不宣称增强成功。真实图参与检索仍需端点与业务语料验收。
 
 图配置的具体用途、单位和缺省值见 `.env.example`。Neo4j/千问真实调用、跨租户/KB、删除恢复、换版、网关与浏览器均需独立验收；本地替身测试不代表服务已部署。
 
@@ -133,3 +133,7 @@ NAS 宿主端口由 `RAG_ENGINE_HOST_PORT` 设置，默认 `18091`，避开已�
 引擎上限1.5GiB/1CPU，OCR上限2GiB/2CPU；同时达到上限时合计3.5GiB。部署前复查 NAS 当前余量，至少另留2GiB给原有中间件及系统。OCR只在内部网络，权重已内置，不映射宿主端口、不访问公网；Java通过私有组网访问引擎。未配置外部TLS时依赖现有加密组网，不能做公网端口映射。
 
 顺序：验证两个镜像健康及真实PDF/图片 → 创建新collection或暂停writer后显式迁移旧库 → 开启Java sparse双写 → 核验索引完整 → 用真实合成题验收引擎 → 最后启用个人Nacos解析/检索开关。只有这一顺序的读回证据齐全才能称部署完成；CI通过不能代替NAS实际安装。保留旧Java检索可通过关闭引擎开关回退。
+
+## Neo4j 事务风险集成测试
+
+`tests/test_graph_neo4j_live.py` 默认跳过，仅显式提供四个 `RAG_ENGINE_NEO4J_LIVE_{URL,USERNAME,PASSWORD,DATABASE}` 后连接。运行前须停止图 worker 并确认没有待处理任务；测试拒绝抢占有效租约，不认领既有任务，清理仅限自建随机 tenant/KB。使用 `uv run --frozen pytest -q tests/test_graph_neo4j_live.py` 验证真实提交顺序、全库/增量交错、删除票据、重传和租约；不把 repository 层控制测试当作模型或 Qdrant 真实性验收。
