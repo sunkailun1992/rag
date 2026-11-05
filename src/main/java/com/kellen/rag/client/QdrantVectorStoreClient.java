@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.regex.Pattern;
 
 /**
@@ -126,6 +128,55 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
             offset = result.get("next_page_offset");
             if (offset == null || offset.isNull() || result.path("points").isEmpty()) {
                 break;
+            }
+        }
+        return points;
+    }
+
+    /** 仅从服务端下载明确选择的身份字段，完整分页；不改变旧全文 scroll 契约。 */
+    @Override
+    public List<StoredVectorPoint> scrollPayload(Map<String, Object> exactFilter, int limit,
+                                                 Set<String> includeFields) {
+        if (includeFields == null || includeFields.isEmpty() || includeFields.size() > 32
+                || includeFields.stream().anyMatch(field -> field == null || !field.matches("[a-z][a-z0-9_]{0,63}"))) {
+            throw new IllegalArgumentException("payload 投影字段不合法");
+        }
+        List<String> fields = includeFields.stream().sorted().toList();
+        int boundedLimit = Math.min(Math.max(limit, 1), 10000);
+        List<StoredVectorPoint> points = new ArrayList<>();
+        Set<String> seenOffsets = new HashSet<>();
+        JsonNode offset = null;
+        while (points.size() < boundedLimit) {
+            int pageLimit = Math.min(256, boundedLimit - points.size());
+            Map<String, Object> request = new LinkedHashMap<>();
+            request.put("filter", filter(exactFilter));
+            request.put("limit", pageLimit);
+            request.put("with_payload", Map.of("include", fields));
+            request.put("with_vector", false);
+            if (offset != null) request.put("offset", offset);
+            JsonNode result = post(collectionUrl() + "/points/scroll", request, Map.of(), 60).path("result");
+            JsonNode values = result.path("points");
+            if (!values.isArray() || values.size() > pageLimit || !result.has("next_page_offset")) {
+                throw ExternalServiceException.httpFailure("Qdrant projection response", 502);
+            }
+            for (JsonNode point : values) {
+                JsonNode payload = point.path("payload");
+                JsonNode id = point.path("id");
+                if (!payload.isObject() || !(id.isTextual() || id.isIntegralNumber())) {
+                    throw ExternalServiceException.httpFailure("Qdrant projection response", 502);
+                }
+                Map<String, Object> selected = new LinkedHashMap<>();
+                for (String field : fields) {
+                    if (payload.has(field)) selected.put(field, objectMapper.convertValue(payload.get(field), Object.class));
+                }
+                points.add(new StoredVectorPoint(id.asText(), selected, 0));
+            }
+            offset = result.path("next_page_offset");
+            if (offset.isNull()) return points;
+            // 截断、空页续游标或循环游标均不构成完整快照，不能交给下游发布或清理。
+            if (values.isEmpty() || points.size() >= boundedLimit
+                    || !(offset.isTextual() || offset.isIntegralNumber()) || !seenOffsets.add(offset.toString())) {
+                throw ExternalServiceException.httpFailure("Qdrant projection pagination", 502);
             }
         }
         return points;

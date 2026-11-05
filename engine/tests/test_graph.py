@@ -416,10 +416,11 @@ async def test_qwen_llama_adapter_uses_bounded_compatible_chat_without_embedding
     def upstream(request):
         assert request.url.path == "/compatible-mode/v1/chat/completions"
         body = json.loads(request.content)
-        assert body["model"] == "qwen-plus" and body["enable_thinking"] is False
+        assert body["model"] == settings.graph_model and body["enable_thinking"] is False
+        assert body["response_format"]["type"] == "json_schema"
         assert body["messages"] == [{"role": "user", "content": "Synthetic source"}]
         return httpx.Response(
-            200, json={"choices": [{"finish_reason": "stop", "message": {"content": "[]"}}]}
+            200, json={"choices": [{"finish_reason": "stop", "message": {"content": '{"triples":[]}'}}]}
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:

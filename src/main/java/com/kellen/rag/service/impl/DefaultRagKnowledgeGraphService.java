@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -43,6 +44,9 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
 
     private static final Pattern SAFE_CODE = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final int MAX_SYNC_POINTS = 10000;
+    private static final Set<String> GRAPH_SOURCE_FIELDS = Set.of(
+            "tenant_id", "knowledge_base", "document_status", "document_id", "document_code",
+            "document_version", "document_revision", "chunk_id", "content_sha256");
 
     private final RagVectorProperties properties;
     private final VectorStoreClient vectorStoreClient;
@@ -236,7 +240,7 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
         long expected = vectorStoreClient.count(filter);
         if (expected > MAX_SYNC_POINTS) throw new IllegalStateException("活动知识切片超过单次图谱同步上限，请拆分知识库后重试");
         if (expected < 0) throw new IllegalStateException("活动知识切片数量不合法");
-        List<StoredVectorPoint> points = vectorStoreClient.scroll(filter, MAX_SYNC_POINTS + 1, false);
+        List<StoredVectorPoint> points = vectorStoreClient.scrollPayload(filter, MAX_SYNC_POINTS + 1, GRAPH_SOURCE_FIELDS);
         if (points.size() != expected || vectorStoreClient.count(filter) != expected) {
             throw new IllegalStateException("活动知识切片快照不完整或发生变化，请重试");
         }

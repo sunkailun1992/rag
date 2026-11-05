@@ -12,6 +12,10 @@
 
 Java 生成最多 10000 条活动切片身份快照，Python 仅按快照读取 Qdrant，并逐项复核 tenant、KB、documentId、version、revision、chunkId 和 contentSha256。来源内容不由浏览器传入图引擎。全量范围超限整次拒绝，不得截断后清理。
 
+Neo4j路径的Java快照使用Qdrant payload selector，仅读取tenant/KB/ACTIVE及七项来源身份需要的9个字段；点ID仍取顶层id。完整count/scroll/count、重复检查与查询前后身份比较保留。旧MySQL投影单独使用完整payload，不改变其正文和结构字段。Python仍自行回读并校验原文，不以Java提供的哈希代替正文指纹核对。
+
+图模型使用显式固定的千问快照和Pydantic生成的严格JSON Schema：响应仅含 `triples`，每项仅含必填 `subjectQuote/predicate/objectQuote` 字符串，长度1至160、关系上限与配置相同。两个Quote字段要求单个连续原文引用，不生成组装后的概念别名。对象形状完整验证后，字段原值一一转入官方Simple提取器，不做类型转换、筛项、裁长或自由格式降级。完整字段/原文匹配和后续作用域防线保留。纠正反馈可提供同片原文的受限摘录，以帮助模型定位缺失限定语；这些提示不参与接受判定、不自动替换实体，修正仍须完整重验，最多一次。内容关系优先于列名/字段值复述。结构正确、名称归一后出现在原文与关系语义已人工确认是不同证据。
+
 每个任务有独立 staging generation；LlamaIndex 提取器之后强制作用域变换，实体出现的存储 ID 包含 tenant、KB、generation 和 pointId。同名实体按授权范围内 canonical name 聚合展示，边按主体、谓词、客体聚合并保留各自来源。禁止默认全局 name MERGE，禁止任意模型 Cypher。每条关系附有来自原切片的证据；模型原文、额外属性及控制字段不得未经校验入库。
 
 构建使用一个可终止子进程，默认单并发、有界待处理队列、独立总预算；不占用现有三秒检索预算。先完整写入、来源读回核对，再原子激活。发布比较文档 revision，并受删除 tombstone、任务 deadline 和活动来源重检约束；迟到旧任务不可覆盖新版本或复活删除文档。失败 staging 不可查询，可安全清理。

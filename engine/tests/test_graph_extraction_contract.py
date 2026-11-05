@@ -315,7 +315,12 @@ async def test_real_qwen_adapter_and_official_extractor_correct_entire_response(
         body = json.loads(request.content)
         assert body["max_tokens"] == 2048 and body["enable_thinking"] is False
         calls.append(body)
-        output = invalid if len(calls) == 1 else valid_triples()
+        triples = invalid if len(calls) == 1 else valid_triples()
+        output = {
+            "triples": [
+                dict(zip(("subjectQuote", "predicate", "objectQuote"), item, strict=True)) for item in triples
+            ]
+        }
         return httpx.Response(
             200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(output)}}]}
         )

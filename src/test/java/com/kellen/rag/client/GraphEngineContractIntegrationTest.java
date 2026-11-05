@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -120,6 +121,7 @@ class GraphEngineContractIntegrationTest {
         when(vectors.collectionExists()).thenReturn(true);
         when(vectors.count(anyMap())).thenReturn(1L);
         when(vectors.scroll(anyMap(), anyInt(), anyBoolean())).thenReturn(List.of(point()));
+        when(vectors.scrollPayload(anyMap(), anyInt(), anySet())).thenReturn(List.of(point()));
     }
 
     @AfterEach
@@ -240,6 +242,7 @@ class GraphEngineContractIntegrationTest {
         var bad = point();
         bad.payload().put("tenant_id", "outside");
         when(vectors.scroll(anyMap(), anyInt(), anyBoolean())).thenReturn(List.of(bad));
+        when(vectors.scrollPayload(anyMap(), anyInt(), anySet())).thenReturn(List.of(bad));
         assertThatThrownBy(() -> service.sync("kb-1")).isInstanceOf(IllegalStateException.class);
         assertThat(requests).hasValue(0);
     }
@@ -248,14 +251,44 @@ class GraphEngineContractIntegrationTest {
     void shouldRejectStaleGraphWhenSourcesChangeDuringQuery() {
         when(vectors.count(anyMap())).thenReturn(1L, 1L, 0L, 0L);
         when(vectors.scroll(anyMap(), anyInt(), anyBoolean())).thenReturn(List.of(point()), List.of());
+        when(vectors.scrollPayload(anyMap(), anyInt(), anySet())).thenReturn(List.of(point()), List.of());
         assertThatThrownBy(() -> service.query("kb-1", null, null, KnowledgeGraphViewMode.OVERVIEW, 20))
                 .isInstanceOf(ExternalServiceException.class);
+    }
+
+    @Test
+    void shouldRejectDuplicateProjectionPointsAndIncompleteIdentityBeforeNetwork() {
+        when(vectors.count(anyMap())).thenReturn(2L);
+        when(vectors.scrollPayload(anyMap(), anyInt(), anySet())).thenReturn(List.of(point(), point()));
+        assertThatThrownBy(() -> service.sync("kb-1")).isInstanceOf(IllegalStateException.class);
+        when(vectors.count(anyMap())).thenReturn(1L);
+        var incomplete = point();
+        incomplete.payload().remove("content_sha256");
+        when(vectors.scrollPayload(anyMap(), anyInt(), anySet())).thenReturn(List.of(incomplete));
+        assertThatThrownBy(() -> service.sync("kb-1")).isInstanceOf(IllegalStateException.class);
+        incomplete.payload().put("content_sha256", "a".repeat(64));
+        incomplete.payload().put("document_version", "2");
+        assertThatThrownBy(() -> service.sync("kb-1")).isInstanceOf(IllegalStateException.class);
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void shouldRejectProjectedHashAndRevisionChangesAfterGraphQuery() {
+        for (Map.Entry<String, Object> change : Map.<String, Object>of(
+                "content_sha256", "b".repeat(64), "document_revision", 6_000_000_002L).entrySet()) {
+            var after = point();
+            after.payload().put(change.getKey(), change.getValue());
+            when(vectors.scrollPayload(anyMap(), anyInt(), anySet())).thenReturn(List.of(point()), List.of(after));
+            assertThatThrownBy(() -> service.query("kb-1", null, null, KnowledgeGraphViewMode.OVERVIEW, 20))
+                    .isInstanceOf(ExternalServiceException.class);
+        }
     }
 
     @Test
     void shouldEstablishBarrierForDocumentWithNoActiveSources() throws Exception {
         when(vectors.count(anyMap())).thenReturn(0L);
         when(vectors.scroll(anyMap(), anyInt(), anyBoolean())).thenReturn(List.of());
+        when(vectors.scrollPayload(anyMap(), anyInt(), anySet())).thenReturn(List.of());
         response = "{\"deactivated\":true,\"barrierEpoch\":1,\"documentRevision\":0}";
         assertThat(service.syncDocument("doc-1").documentCount()).isZero();
         assertThat(requestUri).isEqualTo("/v1/graphs/deactivations");

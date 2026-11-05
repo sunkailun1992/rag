@@ -6,6 +6,7 @@ import com.kellen.rag.model.VectorSearchHit;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Qdrant 向量存储端口。
@@ -19,6 +20,12 @@ public interface VectorStoreClient {
     void upsert(List<VectorPoint> points);
 
     List<StoredVectorPoint> scroll(Map<String, Object> exactFilter, int limit, boolean withVector);
+
+    /** 显式选择来源身份字段；适配器不得静默退回下载全文。 */
+    default List<StoredVectorPoint> scrollPayload(Map<String, Object> exactFilter, int limit,
+                                                  Set<String> includeFields) {
+        throw new UnsupportedOperationException("向量存储未实现 payload 字段投影查询");
+    }
 
     default com.kellen.rag.model.VectorPointPage scrollPage(Map<String, Object> exactFilter,
                                                             int limit, String offset) {
