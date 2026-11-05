@@ -203,6 +203,14 @@ async def parse_document(
             {"file": request.contentBase64, "fileType": 0 if extension == "pdf" else 1, "visualize": False},
             headers,
             settings.max_upstream_bytes,
+            # NAS CPU 推理可超过共享 client 的 10 秒读取超时；仅此请求放宽读取等待。
+            # 外层 parses 的总 deadline 仍覆盖文件检查、OCR、切片，连接/池等待保持短预算。
+            timeout=httpx.Timeout(
+                read=settings.parse_timeout_seconds,
+                connect=min(3.0, settings.parse_timeout_seconds),
+                write=min(10.0, settings.parse_timeout_seconds),
+                pool=min(1.0, settings.parse_timeout_seconds),
+            ),
         )
         blocks = ocr_blocks(response, len(document["pages"]))
     else:

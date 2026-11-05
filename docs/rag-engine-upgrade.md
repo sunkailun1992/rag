@@ -12,6 +12,7 @@ Java `rag` 继续拥有认证、租户、文档版本、幂等、Qdrant 写入�
 - `POST /v1/parses` 接收 `sourceName/title/contentBase64/maxChunkCharacters`，返回 `title/sourceName/sourceType/chunks`。每个切片含 `chunkType/sectionPath/locator/content/metadata`；metadata 保留页码、区块类型、坐标和来源名。请求不接受 URL 或本机路径。
 - `POST /v1/retrievals` 接收 `query/knowledgeBase/topK/candidateCount/similarityThreshold/maxContextCharacters`，返回 `hits/mode/degraded`；每个 hit 含 `id/score/payload`。必须过滤当前租户、知识库与 ACTIVE 状态，Java 再次验证返回范围。
 - 解析与检索开关独立，默认关闭。关闭检索开关即恢复现有 Java 链路；开启后的失败返回原有结构化不可用结果，不在超时后继续叠加一次长耗时回退查询。
+- OCR HTTP 读取等待使用解析预算，连接/池等待保持短超时；它不能延长 `/v1/parses` 的总 deadline，其他共享 HTTP 调用默认超时不变。真实本地延迟 HTTP 回归验证慢 OCR 可完成及总预算超时仍返回 504。
 - Python 整次检索有总超时，Java HTTP 检索上限 3500 毫秒，为上游 Dubbo 5000 毫秒留余量。超时、鉴权错误与无命中分别记录，日志不记录问题、文件正文或凭据。
 
 ## 验收标准
