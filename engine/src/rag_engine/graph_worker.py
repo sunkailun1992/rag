@@ -1,6 +1,7 @@
 """一次性图构建进程；输入经私有管道，输出仅计数或白名单错误码。"""
 
 import asyncio
+import contextvars
 import json
 import logging
 import re
@@ -54,7 +55,7 @@ WORKER_STAGES = frozenset(
     }
 )
 _FRAME_FUNCTIONS = {
-    "graph_worker.py": frozenset({"main", "build", "read_sources", "_aextract"}),
+    "graph_worker.py": frozenset({"main", "build", "read_sources", "_aextract", "acall"}),
     "graph_jobs.py": frozenset({"run_worker", "pump"}),
     "graph_repository.py": frozenset({"rows", "publish", "transaction"}),
     "graph_extract.py": frozenset(
@@ -243,6 +244,66 @@ def with_source_diagnostics(extractor_type):
     return SourceDiagnosticExtractor
 
 
+class _UnavailableValidatedCache:
+    """检查点不可用时仍执行完整抽取和发布校验，不把缓存当作成功凭据。"""
+
+    async def open(self):
+        pass
+
+    async def close(self):
+        pass
+
+
+def with_validated_cache(extractor_type, cache_factory, sources):
+    """在同一异步索引循环中复用已验证路径；节点与来源身份始终由本次构建生成。"""
+    cache_context = contextvars.ContextVar("validated_graph_cache", default=None)
+
+    class CachedValidatedExtractor(extractor_type):
+        async def acall(self, nodes, show_progress=False, **kwargs):
+            cache = cache_factory()
+            token = cache_context.set(cache)
+            try:
+                await cache.open()
+                return await super().acall(nodes, show_progress=show_progress, **kwargs)
+            finally:
+                primary = sys.exception()
+                try:
+                    await cache.close()
+                except BaseException:
+                    if primary is None:
+                        raise
+                finally:
+                    cache_context.reset(token)
+
+        async def _aextract(self, node):
+            from llama_index.core.schema import MetadataMode
+
+            cache = cache_context.get()
+            if cache is None or isinstance(cache, _UnavailableValidatedCache):
+                return await super()._aextract(node)
+            from rag_engine.graph_cache import node_from_triplets, triplets_from_node
+
+            source = sources.get(node.id_)
+            if source is None or node.get_content(metadata_mode=MetadataMode.NONE) != source.content:
+                raise EngineError("GRAPH_SOURCE_CHANGED", 409)
+            saved = await cache.get(source.identity, source.content)
+            if saved is not None:
+                return node_from_triplets(node, saved, self.max_paths_per_chunk)
+            result = await super()._aextract(node)
+            if (
+                result.id_ != node.id_
+                or result.get_content(metadata_mode=MetadataMode.NONE) != source.content
+            ):
+                raise EngineError("GRAPH_SOURCE_CHANGED", 409)
+            triples = triplets_from_node(result, self.max_paths_per_chunk)
+            # 缓存拒收/达到配额不改变已验证的图；删除或换版的fence则由cache明确抛错。
+            if triples is not None:
+                await cache.put(source.identity, source.content, triples)
+            return result
+
+    return CachedValidatedExtractor
+
+
 def source_text_node(source, tenant, kb, generation):
     from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
 
@@ -280,11 +341,12 @@ def build(payload: dict) -> dict:
     _set_worker_stage("SOURCE_READ")
     verified = asyncio.run(read_sources())
     _set_worker_stage("PREPARE_NODES")
-    nodes, sources = [], {}
+    nodes, sources, verified_by_node = [], {}, {}
     for source in verified:
         node = source_text_node(source, tenant, request.knowledgeBase, generation)
         nodes.append(node)
         sources[node.id_] = source.provenance
+        verified_by_node[node.id_] = source
     transform = ScopedGraphTransform(
         tenant=tenant,
         knowledge_base=request.knowledgeBase,
@@ -303,7 +365,25 @@ def build(payload: dict) -> dict:
     store = graph_store(settings)
     try:
         llm = QwenGraphLLM(settings=settings, client=client)
-        extractor = with_source_diagnostics(ValidatedSimpleLLMPathExtractor)(
+
+        def cache_factory():
+            try:
+                from rag_engine.graph_cache import Neo4jValidatedTripletCache, cache_config_fingerprint
+
+                return Neo4jValidatedTripletCache(
+                    settings,
+                    tenant=tenant,
+                    knowledge_base=request.knowledgeBase,
+                    build_id=generation,
+                    config_fingerprint=cache_config_fingerprint(settings),
+                )
+            except Exception:
+                return _UnavailableValidatedCache()
+
+        cached_extractor = with_validated_cache(
+            ValidatedSimpleLLMPathExtractor, cache_factory, verified_by_node
+        )
+        extractor = with_source_diagnostics(cached_extractor)(
             llm=llm,
             extract_prompt=EXTRACT_PROMPT,
             parse_fn=parse_triplets,

@@ -376,6 +376,8 @@ class GraphRepository:
             ).consume()
 
     async def deactivate(self, tenant, document_id, document_revision):
+        from rag_engine.graph_cache import delete_document_cache_tx
+
         async with self.transaction() as tx:
             await self.lock(tx)
             barrier = await (
@@ -395,6 +397,7 @@ class GraphRepository:
                     revision=document_revision,
                 )
             ).single()
+            await delete_document_cache_tx(tx, tenant, document_id)
             await (
                 await tx.run(
                     "MATCH (d:RagGraphDocument {tenant:$tenant,documentId:$document}) "
