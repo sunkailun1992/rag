@@ -48,6 +48,7 @@ RESULTS = frozenset({"success", "failed", "cancelled", "timeout", "degraded", "e
 PROPAGATOR = TraceContextTextMapPropagator()
 _CURRENT = contextvars.ContextVar("rag_observability", default=None)
 logger = logging.getLogger("rag_engine.events")
+_SERVICE_ENVIRONMENT = "github-dev"
 
 
 SAFE_TEMPLATES = frozenset(
@@ -159,6 +160,45 @@ def utc_timestamp():
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def event_metadata(observation=None):
+    observation = observation or _CURRENT.get()
+    value = {
+        "@timestamp": utc_timestamp(),
+        "service": {
+            "name": "rag-engine",
+            "version": VERSION,
+            "environment": observation.environment if observation else _SERVICE_ENVIRONMENT,
+        },
+    }
+    context = trace.get_current_span().get_span_context()
+    if context.is_valid:
+        value.update(trace_id=f"{context.trace_id:032x}", span_id=f"{context.span_id:016x}")
+    return value
+
+
+class SafeJsonFormatter(logging.Formatter):
+    """在最终handler去除Uvicorn前缀；其他未受管的日志沿用原formatter。"""
+
+    def __init__(self, original):
+        super().__init__()
+        self.original = original or logging.Formatter()
+
+    def format(self, record):
+        if getattr(record, "_rag_safe_json", False):
+            return record.getMessage()
+        return self.original.format(record)
+
+
+def protect_final_handlers(log):
+    while log is not None:
+        for handler in log.handlers:
+            if not isinstance(handler.formatter, SafeJsonFormatter):
+                handler.setFormatter(SafeJsonFormatter(handler.formatter))
+        if not log.propagate:
+            break
+        log = log.parent
+
+
 class SafeRuntimeLog(logging.Filter):
     """只序列化现有已审核模板及受限诊断；陌生模板与异常原文失败关闭。"""
 
@@ -166,7 +206,7 @@ class SafeRuntimeLog(logging.Filter):
         trusted = (
             isinstance(record.msg, str) and record.msg in SAFE_TEMPLATES and isinstance(record.args, tuple)
         )
-        arguments = record.args if isinstance(record.args, tuple) else ()
+        arguments = list(record.args) if isinstance(record.args, tuple) else []
         for index, argument in enumerate(arguments if trusted else ()):
             if type(argument) in {int, float}:
                 trusted &= math.isfinite(argument)
@@ -186,19 +226,21 @@ class SafeRuntimeLog(logging.Filter):
 
                 try:
                     diagnostic = json.loads(argument)
-                    trusted &= sanitize_worker_diagnostic(diagnostic) == diagnostic
+                    sanitized = sanitize_worker_diagnostic(diagnostic)
+                    trusted &= sanitized == diagnostic
+                    if sanitized is not None:
+                        arguments[index] = json.dumps(sanitized, separators=(",", ":"))
                 except (ValueError, TypeError):
                     trusted = False
             else:
                 trusted = False
+        record.args = tuple(arguments)
         try:
             diagnostic = record.getMessage() if trusted else "suppressed"
         except (TypeError, ValueError):
             diagnostic = "suppressed"
-        value = {"@timestamp": utc_timestamp(), "event": "rag_diagnostic", "diagnostic": diagnostic}
-        context = trace.get_current_span().get_span_context()
-        if context.is_valid:
-            value.update(trace_id=f"{context.trace_id:032x}", span_id=f"{context.span_id:016x}")
+        value = {**event_metadata(), "event": "rag_diagnostic", "diagnostic": diagnostic}
+        record._rag_safe_json = True
         record.msg, record.args = json.dumps(value, separators=(",", ":")), ()
         record.exc_info = record.exc_text = record.stack_info = None
         return True
@@ -209,15 +251,18 @@ class SafeDependencyLog(logging.Filter):
 
     def filter(self, record):
         record.msg = json.dumps(
-            {"@timestamp": utc_timestamp(), "event": "rag_dependency_diagnostic", "result": "failed"},
+            {**event_metadata(), "event": "rag_dependency_diagnostic", "result": "failed"},
             separators=(",", ":"),
         )
         record.args = ()
+        record._rag_safe_json = True
         record.exc_info = record.exc_text = record.stack_info = None
         return record.levelno >= logging.WARNING
 
 
-def protect_dependency_logs():
+def protect_dependency_logs(environment):
+    global _SERVICE_ENVIRONMENT
+    _SERVICE_ENVIRONMENT = environment
     runtime_root = logging.getLogger("rag_engine")
     runtime_root.setLevel(logging.INFO)
     if not runtime_root.hasHandlers():
@@ -228,6 +273,7 @@ def protect_dependency_logs():
         runtime = logging.getLogger(name)
         if not any(isinstance(item, SafeRuntimeLog) for item in runtime.filters):
             runtime.addFilter(SafeRuntimeLog())
+        protect_final_handlers(runtime)
     dependency_names = {
         name
         for name in logging.Logger.manager.loggerDict
@@ -246,6 +292,7 @@ def protect_dependency_logs():
         dependency = logging.getLogger(name)
         if not any(isinstance(item, SafeDependencyLog) for item in dependency.filters):
             dependency.addFilter(SafeDependencyLog())
+        protect_final_handlers(dependency)
 
 
 def failure_result(error):
@@ -265,7 +312,8 @@ class Operation:
 
 class Observability:
     def __init__(self, settings, *, exporter=None):
-        protect_dependency_logs()
+        self.environment = settings.observability_environment
+        protect_dependency_logs(self.environment)
         self.registry = CollectorRegistry()
         self.requests = Counter(
             "rag_engine_requests", "HTTP请求终态", ["route", "method", "result"], registry=self.registry
@@ -336,17 +384,14 @@ class Observability:
             _CURRENT.reset(token)
 
     def event(self, stage, result, elapsed_ms):
-        context = trace.get_current_span().get_span_context()
         value = {
-            "@timestamp": utc_timestamp(),
+            **event_metadata(self),
             "event": "rag_operation_finished",
             "stage": stage if stage in STAGES else "upstream",
             "result": result if result in RESULTS else "failed",
             "elapsed_ms": max(0, int(elapsed_ms)),
         }
-        if context.is_valid:
-            value.update(trace_id=f"{context.trace_id:032x}", span_id=f"{context.span_id:016x}")
-        logger.info(json.dumps(value, separators=(",", ":")))
+        logger.info(json.dumps(value, separators=(",", ":")), extra={"_rag_safe_json": True})
 
     @contextmanager
     def operation(self, stage, *, root=False, links=()):

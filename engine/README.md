@@ -183,7 +183,7 @@ SDK 使用后台批处理：队列 256、批次 32、调度 500ms、单批编码
 
 中央 Collector 的 OTLP 接收端使用独立 Bearer 令牌。将 `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <private-collector-token>` 写入 Git 外的私有环境文件，由运行环境注入；模板不填真实值，不在命令行中展开或打印，也不复用 Engine 服务 API 密钥。官方 HTTP exporter 从该环境变量读取 Collector 认证，业务请求的 Authorization、其他 header 和正文不作为导出内容。导出总 HTTP 等待仍受 `RAG_ENGINE_OTLP_TIMEOUT_SECONDS` 限制，请求路径不调用 flush。
 
-三类运行事件 `rag_operation_finished` / `rag_diagnostic` / `rag_dependency_diagnostic` 均以单行 JSON 写 stderr，包含 UTC ISO8601 `@timestamp`（毫秒、`Z` 后缀）；有效 OTel 上下文另含 `trace_id` / `span_id`。中央采集只读取结构字段，可将 `elapsed_ms` / `result` 映射成 `duration_ms` / `outcome` 后执行白名单，不采原始 message 或 diagnostic 内容。
+三类运行事件 `rag_operation_finished` / `rag_diagnostic` / `rag_dependency_diagnostic` 均以单行 JSON 写 stderr，包含 UTC ISO8601 `@timestamp`（毫秒、`Z` 后缀）及固定 `service={name,version,environment}`：`name=rag-engine`、`version=0.2.4`、environment 来自受控的 `RAG_ENGINE_OBSERVABILITY_ENVIRONMENT`。有效 OTel 上下文另含 `trace_id` / `span_id`。中央采集只读取结构字段，可将 `elapsed_ms` / `result` 映射成 `duration_ms` / `outcome` 后执行白名单，不采原始 message 或 diagnostic 内容。
 
 文件采集入口可在现有进程启动包装器中把 stderr 追加到专用 JSONL 文件，保留 stderr；以下仅为可审查的启动示例，不安装目录或修改业务 Compose。目录由运维建立并限制属主权限，采集代理只读挂载同一路径，按现有日志策略轮转并设置保留上限：
 
@@ -196,3 +196,8 @@ uv run --frozen uvicorn rag_engine.app:create_app --factory \
 ```
 
 示例使用 Bash/Zsh 的进程替换。容器沿现有受限资源运行时，可由宿主运行时的日志收集/转写入口提供同样 JSONL 文件；不能为了采集扩大 CPU/内存、开放额外管理端口或把原始第三方日志送入中央索引。实际 Collector 认证、文件挂载/轮转和中央读回仍需部署后分别验收。
+
+
+受管日志除了构造安全 LogRecord，也在现有输出 handler 上统一最终 JSON formatter；标准 Uvicorn 的 WARNING/ERROR 不再在 JSON 前附加级别前缀。原始异常与陌生模板仍失败关闭；通过校验的诊断由 sanitize 后的新对象重新序列化，不能把原始 JSON 参数（含解析器隐藏的重复键）回显到最终日志。真实 Uvicorn 子进程回归同时验证三类 stderr 行可逐行解析、service 元数据及 stdout 为空。
+
+解析/检索顶层阶段观测覆盖 `asyncio.timeout` 的退出转换，因此预算耗尽记录 `timeout`，外部任务真实取消记录 `cancelled`。图构建 worker、来源重检和发布阶段共用同一个绝对总 deadline，在各阶段观测内部转换预算异常；不逐阶段重新增加预算，也不改变 worker 回收和原有业务守卫。

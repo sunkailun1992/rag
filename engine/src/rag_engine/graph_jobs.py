@@ -228,8 +228,9 @@ class GraphManager:
                 ):
                     phase = "WORKER_RUN"
                     try:
-                        async with asyncio.timeout(claimed["remaining"]):
-                            with stage("worker_run"):
+                        deadline = asyncio.get_running_loop().time() + claimed["remaining"]
+                        with stage("worker_run"):
+                            async with asyncio.timeout_at(deadline):
                                 counts = await run_worker(
                                     {
                                         "buildId": job["buildId"],
@@ -239,9 +240,10 @@ class GraphManager:
                                     self.settings,
                                     claimed["remaining"],
                                 )
-                            phase = "SOURCE_RECHECK"
-                            request = GraphBuildRequest.model_validate_json(job["requestJson"])
-                            with stage("source_recheck"):
+                        phase = "SOURCE_RECHECK"
+                        request = GraphBuildRequest.model_validate_json(job["requestJson"])
+                        with stage("source_recheck"):
+                            async with asyncio.timeout_at(deadline):
                                 await read_active_sources(
                                     request.activeSources,
                                     job["tenant"],
@@ -249,8 +251,9 @@ class GraphManager:
                                     self.settings,
                                     self.client,
                                 )
-                            phase = "PUBLISH"
-                            with stage("publish"):
+                        phase = "PUBLISH"
+                        with stage("publish"):
+                            async with asyncio.timeout_at(deadline):
                                 await self.repository.publish(job, counts)
                     except asyncio.CancelledError:
                         observed.result = "cancelled"

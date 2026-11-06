@@ -199,8 +199,8 @@ def create_app(
         except TimeoutError as error:
             raise EngineError("PARSER_BUSY", 429) from error
         try:
-            async with asyncio.timeout(settings.parse_timeout_seconds):
-                with stage("parse"):
+            with stage("parse"):
+                async with asyncio.timeout(settings.parse_timeout_seconds):
                     return await parse_document(body, settings, app.state.client)
         except TimeoutError as error:
             raise EngineError("PARSER_TIMEOUT", 504) from error
@@ -218,8 +218,8 @@ def create_app(
         except TimeoutError as error:
             raise EngineError("RETRIEVAL_BUSY", 429) from error
         try:
-            async with asyncio.timeout(settings.retrieval_timeout_seconds):
-                with stage("retrieval") as observed:
+            with stage("retrieval") as observed:
+                async with asyncio.timeout(settings.retrieval_timeout_seconds):
                     result = await retrieve(
                         body,
                         request.state.tenant,
