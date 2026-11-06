@@ -159,3 +159,40 @@ NAS 宿主端口由 `RAG_ENGINE_HOST_PORT` 设置，默认 `18091`，避开已�
 图谱提取另使用现有 Neo4j 保存逐来源的已验证三元组检查点。当前来源、模型或抽取规则改变就重新抽取；命中仍重过完整守卫，并用当前任务生成新的作用域 ID。检查点不保存原始模型回包和旧节点，失败片不能被跳过；全部来源通过并发布后才算完成。文档删除在同一屏障事务清理相关检查点，旧任务写入受 epoch/请求版本约束，不新增中间件或容器资源。
 
 图扩展启动时确保实体名称的租户/知识库复合索引，并通过 `CALL (canonical)` 先定向取得同名实体再扩展来源，避免优化器反复扫描全代切片。原40个名称、20个候选、活动来源守卫和0.4秒局部／3秒整体检索预算保持；仅索引与查询优化不要求重新抽取或重建现有图。
+
+
+## 指标、链路与安全运行事件（0.2.4）
+
+内部 `GET /metrics` 使用与 `/v1/*` 相同的服务 Bearer 密钥，拒绝缺失、错误或重复的 Authorization；采集不要求 `X-Tenant-Id`。部署时将 Prometheus 的 `authorization.credentials_file` 指向 Git 外只读凭据，并继续限制 Engine 私网访问，不能通过公网网关暴露。指标响应设置 `Cache-Control: no-store`，OpenAPI 声明 `ServiceBearer`。
+
+- `rag_engine_requests_total{route,method,result}`：只用有限路由模板与结果，HTTP 200 的检索降级/无命中分别为 `degraded` / `empty`；动态 buildId、URL、query、tenant、KB、ID、hash 不进入标签。
+- `rag_engine_stage_duration_seconds{stage,result}`：解析、检索、embedding、召回、图扩展、rerank，以及父进程 worker、来源重检和发布阶段。单位秒，原有 3 秒总检索 / 0.4 秒图扩展与全部业务预算不变。
+- `rag_engine_retrievals_total{mode,result}`：dense/hybrid 与图增强的业务结果。失败和超时另由请求终态及阶段耗时的 result 区分；不把 HTTP 200 当作全部成功。
+- `rag_engine_graph_builds_total{result}`：已认领构建的成功、失败、超时或取消；排队超时与重启恢复失败在 Neo4j 事务确认后补终态。仓库存终态失败时仍有父进程运行终态，可与安全诊断定位；进程整体被硬杀时需等下一启动的持久任务恢复，内存中未导出的遥测不保证保留。
+
+`RAG_ENGINE_OBSERVABILITY_ENABLED=false` 默认不创建 SDK/export 线程；指标与安全事件保持可用。开启时使用固定官方 OpenTelemetry API/SDK/OTLP HTTP 1.45.2，独立 provider 不接管进程全局 SDK；服务名 `rag-engine`、版本 `0.2.4` 和受限环境字段为显式 resource 白名单。`RAG_ENGINE_OTLP_TRACES_ENDPOINT` 填 Collector 的 `/v1/traces` 完整地址，默认本机；容器应填可访问的私网 Collector 地址，不能把容器 loopback 当宿主。其他开关、抽样和 0.05–1 秒导出等待见 `.env.example`。底层 OTLP exporter 的标准 TLS/Collector 认证环境变量仍属运维配置，不从业务请求转发或采集凭据。
+
+FastAPI ASGI 入口提取 W3C `traceparent` / `tracestate`，HTTPX 传输边界传播同一上下文；不传播 baggage。实现显式元数据 span，关闭异常自动记录与自动状态描述，span 最多 8 项属性、0 个事件、1 个 link、属性值最多 128 字符；不安装 FastAPI/httpx/LlamaIndex 自动内容采集器，不抓取正文、prompt、模型回包、请求头、服务 URL、query 或原始异常。记录实际 HTTP 状态及有限阶段/结果，原有模型、租户、来源、原文与指纹守卫保持。
+
+图任务在父进程建立独立根 trace，以 `SpanLink` 关联当前进程的提交 span；提交上下文映射随队列上限受限，任务终态回收。重启恢复任务无法恢复先前进程内的提交 link。子进程仍仅向 stdout 输出一份原 JSON，stderr 丢弃；不向 worker 加 Console exporter，首批以父进程 `worker_run` 汇总子进程执行，不声称已逐模型调用采集子进程内部 span。
+
+SDK 使用后台批处理：队列 256、批次 32、调度 500ms、单批编码上限 1MiB；网络故障不在业务请求内 flush，也不触发业务重试。应用关闭时在线程中执行 SDK shutdown。metrics 与 SDK 状态每个 app 独立，ContextVar/token 及 OTel 上下文在并发/异常后恢复。有限安全运行事件为 JSON，保留有效上下文的 `trace_id` / `span_id`；既有受控诊断模板包入安全 JSON，陌生模板与原始异常失败关闭，依赖 HTTP/Neo4j/OTel 的原始诊断也不输出 URL/正文。现有已校验的 source_hash 只用于错误诊断，不进指标或 span。
+
+验证包含并发 ASGI→HTTPX 双 trace、敏感 URL/头/异常、metrics 鉴权与标签、HTTP200降级、Collector 不可达、父进程四种终态、排队过期事务提交/回滚、全套引擎回归与 Java↔真实本地 Uvicorn 合同。真实 Collector/Prometheus/Grafana/Jaeger 采集、NAS 部署和模型业务验收需另行取证。
+
+
+中央 Collector 的 OTLP 接收端使用独立 Bearer 令牌。将 `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <private-collector-token>` 写入 Git 外的私有环境文件，由运行环境注入；模板不填真实值，不在命令行中展开或打印，也不复用 Engine 服务 API 密钥。官方 HTTP exporter 从该环境变量读取 Collector 认证，业务请求的 Authorization、其他 header 和正文不作为导出内容。导出总 HTTP 等待仍受 `RAG_ENGINE_OTLP_TIMEOUT_SECONDS` 限制，请求路径不调用 flush。
+
+三类运行事件 `rag_operation_finished` / `rag_diagnostic` / `rag_dependency_diagnostic` 均以单行 JSON 写 stderr，包含 UTC ISO8601 `@timestamp`（毫秒、`Z` 后缀）；有效 OTel 上下文另含 `trace_id` / `span_id`。中央采集只读取结构字段，可将 `elapsed_ms` / `result` 映射成 `duration_ms` / `outcome` 后执行白名单，不采原始 message 或 diagnostic 内容。
+
+文件采集入口可在现有进程启动包装器中把 stderr 追加到专用 JSONL 文件，保留 stderr；以下仅为可审查的启动示例，不安装目录或修改业务 Compose。目录由运维建立并限制属主权限，采集代理只读挂载同一路径，按现有日志策略轮转并设置保留上限：
+
+```sh
+umask 077
+RAG_ENGINE_EVENT_LOG=/var/log/github-dev/rag-engine/events.jsonl
+uv run --frozen uvicorn rag_engine.app:create_app --factory \
+  --host 127.0.0.1 --port 8091 --workers 1 --no-access-log \
+  2> >(tee -a "$RAG_ENGINE_EVENT_LOG" >&2)
+```
+
+示例使用 Bash/Zsh 的进程替换。容器沿现有受限资源运行时，可由宿主运行时的日志收集/转写入口提供同样 JSONL 文件；不能为了采集扩大 CPU/内存、开放额外管理端口或把原始第三方日志送入中央索引。实际 Collector 认证、文件挂载/轮转和中央读回仍需部署后分别验收。

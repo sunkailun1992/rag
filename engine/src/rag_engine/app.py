@@ -11,7 +11,8 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from rag_engine.config import Settings
 from rag_engine.errors import EngineError
@@ -24,6 +25,7 @@ from rag_engine.graph_models import (
     GraphResponse,
 )
 from rag_engine.models import ParseRequest, ParseResponse, RetrievalRequest, RetrievalResponse
+from rag_engine.observability import Observability, ObservationBoundary, ObservedTransport, stage
 from rag_engine.parsing import parse_document
 from rag_engine.retrieval import retrieve
 
@@ -42,7 +44,7 @@ class RequestBoundary:
         self.settings = settings
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
+        if scope["type"] != "http" or (not scope["path"].startswith("/v1/") and scope["path"] != "/metrics"):
             await self.app(scope, receive, send)
             return
         headers = scope["headers"]
@@ -51,6 +53,9 @@ class RequestBoundary:
         expected = ("Bearer " + self.settings.api_key.get_secret_value()).encode()
         if len(auth) != 1 or not secrets.compare_digest(auth[0], expected):
             await error_response("UNAUTHORIZED", 401)(scope, receive, send)
+            return
+        if scope["path"] == "/metrics":
+            await self.app(scope, receive, send)
             return
         if len(tenants) != 1 or not re.fullmatch(rb"[A-Za-z0-9_-]{1,64}", tenants[0]):
             await error_response("INVALID_TENANT", 400)(scope, receive, send)
@@ -97,44 +102,57 @@ class RequestBoundary:
 
 
 def create_app(
-    settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None
+    settings: Settings | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+    *,
+    observability: Observability | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
+    observation = observability or Observability(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        async with httpx.AsyncClient(
-            timeout=10,
-            follow_redirects=False,
-            trust_env=False,
-            transport=transport,
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-        ) as client:
-            app.state.client = client
-            app.state.parse_slots = asyncio.Semaphore(settings.parse_workers)
-            app.state.retrieval_slots = asyncio.Semaphore(16)
-            app.state.graph = None
-            if settings.graph_enabled and all(
-                [
-                    settings.neo4j_url,
-                    settings.neo4j_password.get_secret_value(),
-                    settings.qdrant_url,
-                    settings.qwen_base_url,
-                    settings.qwen_api_key.get_secret_value(),
-                ]
-            ):
-                manager = GraphManager(settings, client)
+        try:
+            async with httpx.AsyncClient(
+                timeout=10,
+                follow_redirects=False,
+                trust_env=False,
+                transport=ObservedTransport(
+                    transport
+                    or httpx.AsyncHTTPTransport(
+                        trust_env=False, limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
+                    ),
+                    observation,
+                ),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            ) as client:
+                app.state.client = client
+                app.state.parse_slots = asyncio.Semaphore(settings.parse_workers)
+                app.state.retrieval_slots = asyncio.Semaphore(16)
+                app.state.graph = None
+                if settings.graph_enabled and all(
+                    [
+                        settings.neo4j_url,
+                        settings.neo4j_password.get_secret_value(),
+                        settings.qdrant_url,
+                        settings.qwen_base_url,
+                        settings.qwen_api_key.get_secret_value(),
+                    ]
+                ):
+                    manager = GraphManager(settings, client, observability=observation)
+                    try:
+                        await manager.start()
+                        app.state.graph = manager
+                    except Exception:
+                        logger.warning("rag_graph_failed code=GRAPH_STORE_UNAVAILABLE")
+                        await manager.repository.driver.close()
                 try:
-                    await manager.start()
-                    app.state.graph = manager
-                except Exception:
-                    logger.warning("rag_graph_failed code=GRAPH_STORE_UNAVAILABLE")
-                    await manager.repository.driver.close()
-            try:
-                yield
-            finally:
-                if app.state.graph:
-                    await app.state.graph.stop()
+                    yield
+                finally:
+                    if app.state.graph:
+                        await app.state.graph.stop()
+        finally:
+            await asyncio.to_thread(observation.shutdown)
 
     app = FastAPI(
         title="RAG Engine Internal API",
@@ -144,7 +162,9 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    app.state.observability = observation
     app.add_middleware(RequestBoundary, settings=settings)
+    app.add_middleware(ObservationBoundary, observation=observation)
 
     @app.exception_handler(EngineError)
     async def engine_failure(_request: Request, exception: EngineError):
@@ -155,6 +175,13 @@ def create_app(
     async def invalid_input(_request: Request, _exception: RequestValidationError):
         # Pydantic 原始 errors 里含 input，可能是正文、base64 或密钥，不对外返回。
         return error_response("INVALID_REQUEST", 422)
+
+    @app.get("/metrics", response_class=Response)
+    async def metrics():
+        return Response(
+            generate_latest(observation.registry),
+            headers={"Content-Type": CONTENT_TYPE_LATEST, "Cache-Control": "no-store"},
+        )
 
     @app.get("/health")
     async def health():
@@ -173,7 +200,8 @@ def create_app(
             raise EngineError("PARSER_BUSY", 429) from error
         try:
             async with asyncio.timeout(settings.parse_timeout_seconds):
-                return await parse_document(body, settings, app.state.client)
+                with stage("parse"):
+                    return await parse_document(body, settings, app.state.client)
         except TimeoutError as error:
             raise EngineError("PARSER_TIMEOUT", 504) from error
         except httpx.HTTPError as error:
@@ -191,13 +219,22 @@ def create_app(
             raise EngineError("RETRIEVAL_BUSY", 429) from error
         try:
             async with asyncio.timeout(settings.retrieval_timeout_seconds):
-                return await retrieve(
-                    body,
-                    request.state.tenant,
-                    settings,
-                    app.state.client,
-                    graph_repository=app.state.graph.repository if app.state.graph else None,
-                )
+                with stage("retrieval") as observed:
+                    result = await retrieve(
+                        body,
+                        request.state.tenant,
+                        settings,
+                        app.state.client,
+                        graph_repository=app.state.graph.repository if app.state.graph else None,
+                    )
+                    observation.retrieval_result(result)
+                    observed.result = (
+                        "degraded"
+                        if result.degraded or result.graphDegraded
+                        else ("success" if result.hits else "empty")
+                    )
+                    request.state.observation_result = observed.result
+                    return result
         except TimeoutError as error:
             raise EngineError("RETRIEVAL_TIMEOUT", 504) from error
         except httpx.HTTPError as error:
@@ -273,6 +310,8 @@ def create_app(
                     }
                 },
             }
+            schema["paths"]["/metrics"]["get"]["security"] = [{"ServiceBearer": []}]
+            schema["paths"]["/metrics"]["get"]["responses"]["401"] = {"description": "服务凭据缺失或无效。"}
             for path, operations in schema["paths"].items():
                 if not path.startswith("/v1/"):
                     continue

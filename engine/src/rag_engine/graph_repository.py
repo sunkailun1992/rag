@@ -1,7 +1,7 @@
 """Neo4j 持久任务、租约与原子发布；只执行应用内固定 Cypher。"""
 
 import json
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 
 from neo4j import AsyncGraphDatabase, Query
@@ -44,6 +44,7 @@ class GraphRepository:
     def __init__(self, settings, owner: str):
         self.settings = settings
         self.owner = owner
+        self.on_terminal = None
         self.driver = AsyncGraphDatabase.driver(
             settings.neo4j_url,
             auth=(settings.neo4j_username, settings.neo4j_password.get_secret_value()),
@@ -52,6 +53,13 @@ class GraphRepository:
             connection_acquisition_timeout=3,
             max_transaction_retry_time=0,
         )
+
+    def report_terminals(self, jobs, result):
+        if getattr(self, "on_terminal", None):
+            for job in jobs:
+                # 可观测性回调不能使已提交的业务事务失败；身份不进入遥测。
+                with suppress(Exception):
+                    self.on_terminal(job["buildId"], result)
 
     async def rows(self, query, **params):
         records, _, _ = await self.driver.execute_query(
@@ -110,13 +118,14 @@ class GraphRepository:
         )
         if not lease:
             raise EngineError("GRAPH_WORKER_ALREADY_RUNNING", 503)
-        await self.rows(
+        recovered = await self.rows(
             "MATCH (j:RagGraphJob) WHERE j.status='RUNNING' OR "
             "(j.status='QUEUED' AND (j.deadline<timestamp() OR j.sequence IS NULL)) "
             "SET j.status='FAILED',j.errorCode='GRAPH_WORKER_RESTARTED',j.updatedAt=$updated "
-            "REMOVE j.requestJson,j.documentsJson",
+            "REMOVE j.requestJson,j.documentsJson RETURN j.buildId AS buildId",
             updated=now_iso(),
         )
+        self.report_terminals(recovered, "failed")
 
     async def heartbeat(self):
         rows = await self.rows(
@@ -243,14 +252,14 @@ class GraphRepository:
     async def claim(self) -> dict | None:
         async with self.transaction() as tx:
             await self.lock(tx)
-            await (
+            expired = await (
                 await tx.run(
                     "MATCH (j:RagGraphJob {status:'QUEUED'}) WHERE j.deadline<=timestamp() "
                     "SET j.status='FAILED',j.errorCode='GRAPH_BUILD_TIMEOUT',j.updatedAt=$updated "
-                    "REMOVE j.requestJson,j.documentsJson",
+                    "REMOVE j.requestJson,j.documentsJson RETURN j.buildId AS buildId",
                     updated=now_iso(),
                 )
-            ).consume()
+            ).data()
             row = await (
                 await tx.run(
                     "MATCH (j:RagGraphJob {status:'QUEUED'}) WITH j ORDER BY j.createdAt,j.buildId LIMIT 1 "
@@ -260,7 +269,9 @@ class GraphRepository:
                     updated=now_iso(),
                 )
             ).single()
-            return dict(row) if row else None
+            claimed = dict(row) if row else None
+        self.report_terminals(expired, "timeout")
+        return claimed
 
     async def status(self, tenant, kb, build_id=None):
         rows = await self.rows(

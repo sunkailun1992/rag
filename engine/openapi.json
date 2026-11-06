@@ -5,6 +5,25 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/metrics": {
+      "get": {
+        "summary": "Metrics",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "服务凭据缺失或无效。"
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ]
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",

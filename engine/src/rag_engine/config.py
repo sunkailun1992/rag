@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     retrieval_timeout_seconds: float = Field(default=3.0, ge=0.1, le=3.0)
     rerank_timeout_seconds: float = Field(default=0.8, ge=0.05, le=1.5)
     max_upstream_bytes: int = Field(default=16 * 1024 * 1024, ge=1024, le=16 * 1024 * 1024)
+    # OTLP导出独立关闭；Prometheus仍由内部Bearer端点拉取。
+    observability_enabled: bool = False
+    observability_environment: str = Field(default="github-dev", pattern=r"^[a-z0-9_-]{1,32}$")
+    otlp_traces_endpoint: str = Field(default="http://127.0.0.1:4318/v1/traces", min_length=1)
+    otlp_timeout_seconds: float = Field(default=0.5, ge=0.05, le=1, allow_inf_nan=False)
+    trace_sample_ratio: float = Field(default=0.1, ge=0, le=1, allow_inf_nan=False)
     graph_enabled: bool = False
     graph_retrieval_enabled: bool = False
     neo4j_url: str = ""
@@ -69,7 +75,7 @@ class Settings(BaseSettings):
             raise ValueError("invalid Neo4j service URL")
         return value.rstrip("/")
 
-    @field_validator("qdrant_url", "qwen_base_url", "ocr_url")
+    @field_validator("qdrant_url", "qwen_base_url", "ocr_url", "otlp_traces_endpoint")
     @classmethod
     def service_url(cls, value: str) -> str:
         """地址只能由运维配置；禁止凭据、查询串与跳转掩盖最终目标。"""

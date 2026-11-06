@@ -9,6 +9,8 @@ import re
 import sys
 import uuid
 
+from opentelemetry import trace
+
 from rag_engine.errors import (
     GRAPH_MODEL_CODES,
     GRAPH_MODEL_REASONS,
@@ -21,6 +23,7 @@ from rag_engine.graph_query import aggregate_graph
 from rag_engine.graph_repository import GraphRepository
 from rag_engine.graph_sources import evidence_excerpt, read_active_sources
 from rag_engine.graph_worker import safe_worker_diagnostic, sanitize_worker_diagnostic
+from rag_engine.observability import Observability, failure_result, stage
 
 logger = logging.getLogger("rag_engine.graph")
 
@@ -163,11 +166,24 @@ async def run_worker(payload, settings, remaining: float):
 
 
 class GraphManager:
-    def __init__(self, settings, client, repository=None):
+    def __init__(self, settings, client, repository=None, *, observability=None):
         self.settings, self.client = settings, client
         self.owner = str(uuid.uuid4())
         self.repository = repository or GraphRepository(settings, self.owner)
         self.tasks = []
+        self.observability = observability or Observability(settings)
+        self.submission_contexts = {}
+        self.repository.on_terminal = self.report_terminal
+
+    def report_terminal(self, build_id, result):
+        submitted = self.submission_contexts.pop(build_id, None)
+        with (
+            self.observability.activate(),
+            self.observability.operation(
+                "graph_build", root=True, links=([submitted] if submitted else [])
+            ) as observed,
+        ):
+            observed.result = result
 
     async def start(self):
         await self.repository.start()
@@ -203,51 +219,65 @@ class GraphManager:
                     await asyncio.sleep(0.5)
                     continue
                 job = claimed["job"]
-                stage = "WORKER_RUN"
-                try:
-                    async with asyncio.timeout(claimed["remaining"]):
-                        counts = await run_worker(
-                            {
-                                "buildId": job["buildId"],
-                                "tenant": job["tenant"],
-                                "request": json.loads(job["requestJson"]),
-                            },
-                            self.settings,
-                            claimed["remaining"],
+                submitted = self.submission_contexts.pop(job["buildId"], None)
+                with (
+                    self.observability.activate(),
+                    self.observability.operation(
+                        "graph_build", root=True, links=([submitted] if submitted else [])
+                    ) as observed,
+                ):
+                    phase = "WORKER_RUN"
+                    try:
+                        async with asyncio.timeout(claimed["remaining"]):
+                            with stage("worker_run"):
+                                counts = await run_worker(
+                                    {
+                                        "buildId": job["buildId"],
+                                        "tenant": job["tenant"],
+                                        "request": json.loads(job["requestJson"]),
+                                    },
+                                    self.settings,
+                                    claimed["remaining"],
+                                )
+                            phase = "SOURCE_RECHECK"
+                            request = GraphBuildRequest.model_validate_json(job["requestJson"])
+                            with stage("source_recheck"):
+                                await read_active_sources(
+                                    request.activeSources,
+                                    job["tenant"],
+                                    request.knowledgeBase,
+                                    self.settings,
+                                    self.client,
+                                )
+                            phase = "PUBLISH"
+                            with stage("publish"):
+                                await self.repository.publish(job, counts)
+                    except asyncio.CancelledError:
+                        observed.result = "cancelled"
+                        with contextlib.suppress(Exception):
+                            await self.repository.finish_failed(job, "GRAPH_WORKER_STOPPED", cancelled=True)
+                        raise
+                    except Exception as error:
+                        observed.result = failure_result(error)
+                        if not isinstance(error, EngineError):
+                            logger.warning(
+                                "rag_graph_parent_stage_failed data=%s",
+                                json.dumps(safe_worker_diagnostic(error, phase), separators=(",", ":")),
+                            )
+                        code = (
+                            error.code
+                            if isinstance(error, EngineError)
+                            else (
+                                "GRAPH_BUILD_TIMEOUT"
+                                if isinstance(error, TimeoutError)
+                                else "GRAPH_BUILD_FAILED"
+                            )
                         )
-                        stage = "SOURCE_RECHECK"
-                        request = GraphBuildRequest.model_validate_json(job["requestJson"])
-                        await read_active_sources(
-                            request.activeSources,
-                            job["tenant"],
-                            request.knowledgeBase,
-                            self.settings,
-                            self.client,
-                        )
-                        stage = "PUBLISH"
-                        await self.repository.publish(job, counts)
-                except asyncio.CancelledError:
+                        with contextlib.suppress(Exception):
+                            await self.repository.finish_failed(job, code)
+                        logger.warning("rag_graph_build_failed code=%s", code)
                     with contextlib.suppress(Exception):
-                        await self.repository.finish_failed(job, "GRAPH_WORKER_STOPPED", cancelled=True)
-                    raise
-                except Exception as error:
-                    if not isinstance(error, EngineError):
-                        logger.warning(
-                            "rag_graph_parent_stage_failed data=%s",
-                            json.dumps(safe_worker_diagnostic(error, stage), separators=(",", ":")),
-                        )
-                    code = (
-                        error.code
-                        if isinstance(error, EngineError)
-                        else (
-                            "GRAPH_BUILD_TIMEOUT" if isinstance(error, TimeoutError) else "GRAPH_BUILD_FAILED"
-                        )
-                    )
-                    with contextlib.suppress(Exception):
-                        await self.repository.finish_failed(job, code)
-                    logger.warning("rag_graph_build_failed code=%s", code)
-                with contextlib.suppress(Exception):
-                    await self.repository.cleanup(job)
+                        await self.repository.cleanup(job)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -260,7 +290,13 @@ class GraphManager:
             await read_active_sources(
                 request.activeSources, tenant, request.knowledgeBase, self.settings, self.client
             )
-            return await self.repository.submit(tenant, request, str(uuid.uuid4()))
+            result = await self.repository.submit(tenant, request, str(uuid.uuid4()))
+            context = trace.get_current_span().get_span_context()
+            if context.is_valid and result.status in {"QUEUED", "RUNNING"}:
+                # 只保留本进程有界排队任务的关联；重启恢复任务没有提交link。
+                if len(self.submission_contexts) < self.settings.graph_queue_size + 1:
+                    self.submission_contexts.setdefault(result.buildId, context)
+            return result
 
     async def query(self, tenant, request):
         async with asyncio.timeout(self.settings.graph_query_timeout_seconds):
