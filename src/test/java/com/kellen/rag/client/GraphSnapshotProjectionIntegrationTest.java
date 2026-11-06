@@ -2,11 +2,8 @@ package com.kellen.rag.client;
 
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.entity.vo.GraphBuildVO;
-import com.kellen.rag.graph.KnowledgeGraphProjector;
 import com.kellen.rag.model.ActiveGraphSource;
-import com.kellen.rag.model.KnowledgeGraphProjection;
 import com.kellen.rag.service.impl.DefaultRagKnowledgeGraphService;
-import com.kellen.rag.store.KnowledgeGraphStore;
 import com.kellen.utils.context.TenantContextHolder;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -34,7 +31,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** 经实际本机 HTTP 分页，证明 Neo4j 身份快照不下载正文且旧结构投影仍取得全文。 */
+/** 经实际本机 HTTP 分页，证明 Neo4j 身份快照只下载九个身份字段。 */
 class GraphSnapshotProjectionIntegrationTest {
     private static final Set<String> FIELDS = Set.of("tenant_id", "knowledge_base", "document_status",
             "document_id", "document_code", "document_version", "document_revision", "chunk_id", "content_sha256");
@@ -55,12 +52,10 @@ class GraphSnapshotProjectionIntegrationTest {
     void shouldReadOnlyNineIdentityFieldsAcrossFourPagesAnd866PointsForNeo4j() throws Exception {
         startServer(866);
         RagEngineClient engine = mock(RagEngineClient.class);
-        when(engine.isGraphEnabled()).thenReturn(true);
         when(engine.buildGraph(anyString(), anyList(), eq(true))).thenReturn(
                 new GraphBuildVO("build-1", "kb-1", "QUEUED", 1, 0, 0, 0, null, null, null));
-        KnowledgeGraphStore legacy = mock(KnowledgeGraphStore.class);
 
-        var result = service(engine, legacy).sync("kb-1");
+        var result = service(engine).sync("kb-1");
 
         assertThat(result.status()).isEqualTo("QUEUED");
         assertThat(scrollRequests).hasSize(4);
@@ -83,25 +78,6 @@ class GraphSnapshotProjectionIntegrationTest {
             assertThat(source.documentRevision()).isEqualTo(6_000_000_001L);
             assertThat(source.contentSha256()).isEqualTo("a".repeat(64));
         });
-        verifyNoInteractions(legacy);
-    }
-
-    @Test
-    void shouldKeepFullPayloadAndContentProjectionForLegacyMySqlBackend() throws Exception {
-        startServer(2);
-        RagEngineClient engine = mock(RagEngineClient.class);
-        KnowledgeGraphStore legacy = mock(KnowledgeGraphStore.class);
-
-        var result = service(engine, legacy).sync("kb-1");
-
-        assertThat(result.documentCount()).isEqualTo(1);
-        assertThat(scrollRequests).hasSize(1);
-        assertThat(scrollRequests.get(0).path("with_payload").isBoolean()).isTrue();
-        assertThat(scrollRequests.get(0).path("with_payload").asBoolean()).isTrue();
-        ArgumentCaptor<KnowledgeGraphProjection> captured = ArgumentCaptor.forClass(KnowledgeGraphProjection.class);
-        verify(legacy).save(captured.capture());
-        assertThat(captured.getValue().nodes()).anySatisfy(node -> assertThat(node.name()).isEqualTo("高"));
-        assertThat(captured.getValue().edges()).isNotEmpty();
     }
 
     @Test
@@ -150,13 +126,13 @@ class GraphSnapshotProjectionIntegrationTest {
         return new QdrantVectorStoreClient(mapper, properties);
     }
 
-    private DefaultRagKnowledgeGraphService service(RagEngineClient engine, KnowledgeGraphStore legacy) {
+    private DefaultRagKnowledgeGraphService service(RagEngineClient engine) {
         RagVectorProperties properties = new RagVectorProperties();
         properties.setQdrantUrl("http://127.0.0.1:" + server.getAddress().getPort());
         properties.setCollectionName("fixture");
         TenantContextHolder.setTenantId("tenant-a");
         return new DefaultRagKnowledgeGraphService(properties, new QdrantVectorStoreClient(mapper, properties),
-                new KnowledgeGraphProjector(), legacy, engine);
+                engine);
     }
 
     private void startServer(int total) throws Exception {

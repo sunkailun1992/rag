@@ -1,13 +1,9 @@
 package com.kellen.rag.service.impl;
 
-import com.kellen.rag.client.EmbeddingClient;
 import com.kellen.rag.client.RagEngineClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.kellen.rag.client.RerankClient;
-import com.kellen.rag.client.VectorStoreClient;
 import com.kellen.rag.config.RagVectorProperties;
-import com.kellen.rag.model.RerankResult;
 import com.kellen.rag.model.VectorSearchHit;
 import com.kellen.rag.service.RagRetrievalService;
 import com.kellen.rpc.rag.RagRetrievalChunkRpcDTO;
@@ -17,16 +13,13 @@ import com.kellen.utils.context.TenantContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 千问向量召回、Qdrant 租户过滤与 qwen3-rerank 重排实现。
+ * Python Engine 检索门面；保留租户前置校验、RPC 组装与受限失败降级。
  */
 @Service
 public class DefaultRagRetrievalService implements RagRetrievalService {
@@ -34,19 +27,9 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
     private static final Logger log = LoggerFactory.getLogger(DefaultRagRetrievalService.class);
     private final RagEngineClient engineClient;
     private final RagVectorProperties properties;
-    private final EmbeddingClient embeddingClient;
-    private final VectorStoreClient vectorStoreClient;
-    private final RerankClient rerankClient;
-
-    public DefaultRagRetrievalService(RagVectorProperties properties,
-                                      EmbeddingClient embeddingClient,
-                                      VectorStoreClient vectorStoreClient,
-                                      RerankClient rerankClient, RagEngineClient engineClient) {
+    public DefaultRagRetrievalService(RagVectorProperties properties, RagEngineClient engineClient) {
         this.engineClient = engineClient;
         this.properties = properties;
-        this.embeddingClient = embeddingClient;
-        this.vectorStoreClient = vectorStoreClient;
-        this.rerankClient = rerankClient;
     }
 
     @Override
@@ -78,7 +61,7 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
             return response;
         }
         long started = System.nanoTime();
-        String mode = engineClient.isRetrievalEnabled() ? "engine" : "java";
+        String mode = "engine";
         try {
             int requestedTopK = request.getTopK() == null ? properties.getTopK() : request.getTopK();
             int topK = Math.min(Math.max(requestedTopK, 1), 20);
@@ -89,20 +72,9 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
             int contextLimit = request.getMaxContextCharacters() == null
                     ? properties.getMaxContextCharacters()
                     : Math.min(Math.max(request.getMaxContextCharacters(), 1000), 30000);
-            List<VectorSearchHit> ordered;
-            if (engineClient.isRetrievalEnabled()) {
-                // 引擎失败不追加旧链路调用；避免叠加超时突破调用方的 5 秒预算。
-                ordered = engineClient.retrieve(request.getQuery().trim(), knowledgeBase, topK,
-                        candidates, threshold, contextLimit);
-            } else {
-                vectorStoreClient.ensureCollection();
-                float[] queryVector = embeddingClient.embedQuery(request.getQuery().trim());
-                List<VectorSearchHit> vectorHits = vectorStoreClient.search(queryVector, Map.of(
-                        "tenant_id", tenantId, "knowledge_base", knowledgeBase, "document_status", "ACTIVE"
-                ), candidates, threshold);
-                ordered = vectorHits.isEmpty() ? List.of()
-                        : rerank(request.getQuery().trim(), deduplicate(vectorHits), topK);
-            }
+            // 唯一检索实现由引擎提供；失败直接返回兼容降级，不能叠加另一条超时链。
+            List<VectorSearchHit> ordered = engineClient.retrieve(request.getQuery().trim(), knowledgeBase, topK,
+                    candidates, threshold, contextLimit);
             List<RagRetrievalChunkRpcDTO> chunks = ordered.stream()
                     .limit(topK)
                     .map(this::toChunk)
@@ -124,33 +96,6 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
                     exception.getClass().getSimpleName(), (System.nanoTime() - started) / 1_000_000);
             response.setMessage("RAG retrieval is temporarily unavailable");
             return response;
-        }
-    }
-
-    private List<VectorSearchHit> deduplicate(List<VectorSearchHit> hits) {
-        Map<String, VectorSearchHit> unique = new LinkedHashMap<>();
-        for (VectorSearchHit hit : hits) {
-            String hash = text(hit.payload(), "content_sha256");
-            VectorSearchHit current = unique.get(hash);
-            if (current == null || hit.score() > current.score()) {
-                unique.put(hash, hit);
-            }
-        }
-        return new ArrayList<>(unique.values());
-    }
-
-    private List<VectorSearchHit> rerank(String query, List<VectorSearchHit> hits, int topK) {
-        try {
-            List<RerankResult> results = rerankClient.rerank(query,
-                    hits.stream().map(hit -> text(hit.payload(), "content")).toList(), topK);
-            return results.stream()
-                    .filter(result -> result.index() >= 0 && result.index() < hits.size())
-                    .map(result -> new VectorSearchHit(
-                            hits.get(result.index()).id(), result.score(), hits.get(result.index()).payload()))
-                    .toList();
-        } catch (RuntimeException exception) {
-            log.warn("rag_rerank outcome=vector_fallback error_type={}", exception.getClass().getSimpleName());
-            return hits.stream().sorted(Comparator.comparingDouble(VectorSearchHit::score).reversed()).toList();
         }
     }
 

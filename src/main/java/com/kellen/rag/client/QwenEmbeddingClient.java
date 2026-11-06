@@ -38,11 +38,6 @@ public class QwenEmbeddingClient extends JsonHttpSupport implements EmbeddingCli
         return vectors;
     }
 
-    @Override
-    public float[] embedQuery(String query) {
-        return embed(List.of(query)).get(0);
-    }
-
     private List<float[]> embed(List<String> texts) {
         requireConfig();
         JsonNode response = post(baseUrl() + "/embeddings", Map.of(

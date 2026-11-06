@@ -3,12 +3,10 @@ package com.kellen.rag.client;
 import com.kellen.rag.config.RagEngineProperties;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.exception.ExternalServiceException;
-import com.kellen.rag.graph.KnowledgeGraphProjector;
 import com.kellen.rag.model.ActiveGraphSource;
 import com.kellen.rag.model.KnowledgeGraphViewMode;
 import com.kellen.rag.model.StoredVectorPoint;
 import com.kellen.rag.service.impl.DefaultRagKnowledgeGraphService;
-import com.kellen.rag.store.KnowledgeGraphStore;
 import com.kellen.utils.context.TenantContextHolder;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -53,7 +51,7 @@ import static org.mockito.Mockito.when;
 class GraphEngineContractIntegrationTest {
     @Configuration(proxyBeanMethods = false)
     @Import({RagEngineClient.class, RagEngineProperties.class, RagVectorProperties.class,
-            DefaultRagKnowledgeGraphService.class, KnowledgeGraphProjector.class})
+            DefaultRagKnowledgeGraphService.class})
     static class TestConfig {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
     }
@@ -63,7 +61,6 @@ class GraphEngineContractIntegrationTest {
     @Autowired private ObjectMapper mapper;
     @Autowired private DefaultRagKnowledgeGraphService service;
     @MockitoBean private VectorStoreClient vectors;
-    @MockitoBean private KnowledgeGraphStore legacy;
     private HttpServer server;
     private ExecutorService executor;
     private String tenant;
@@ -114,7 +111,6 @@ class GraphEngineContractIntegrationTest {
         server.start();
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
         properties.setApiKey(key);
-        properties.setGraphEnabled(true);
         properties.setGraphTimeoutMillis(2000);
         properties.setGraphStatusTimeoutMillis(1000);
         properties.setMaxResponseBytes(1024 * 1024);
@@ -143,7 +139,6 @@ class GraphEngineContractIntegrationTest {
         var request = mapper.readTree(requestBody);
         assertThat(request.has("tenantId")).isFalse();
         assertThat(request.path("activeSources").get(0).path("documentRevision").asLong()).isEqualTo(source.documentRevision());
-        verifyNoInteractions(legacy);
     }
 
     @Test
@@ -225,7 +220,6 @@ class GraphEngineContractIntegrationTest {
         assertThat(requestMethod).isEqualTo("GET");
         assertThat(requestUri).isEqualTo("/v1/graphs/builds/build-1?knowledgeBase=kb-1");
         assertThat(requestBody).isEmpty();
-        verifyNoInteractions(legacy);
         var other = build();
         other.put("knowledgeBase", "other");
         response = mapper.writeValueAsString(other);

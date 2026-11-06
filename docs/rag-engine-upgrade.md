@@ -2,7 +2,7 @@
 
 ## 需求与兼容边界
 
-Java `rag` 继续拥有认证、租户、文档版本、幂等、Qdrant 写入与读回校验、图谱和现有 HTTP/Dubbo 契约。`engine/` 是同仓库独立 Python 服务，负责 PDF/图片解析与可选检索。既有 XLSX/DOCX 结构化解析保持原样。
+Java `rag` 继续拥有认证、租户、文档版本、幂等、Qdrant 写入与读回校验、图谱和现有 HTTP/Dubbo 契约。`engine/` 是同仓库独立 Python 服务，负责 PDF/图片解析与全部检索。既有 XLSX/DOCX 结构化解析保持原样。
 
 首批落地评估基准、PDF/OCR 适配、带来源信息的切片和可回退的 dense / TF-IDF sparse + RRF 混合检索引擎。真实 OCR 质量、混合检索提分和线上 5 秒预算必须分别验收，不以本机 stub 测试代替。查询改写、繁简归一和异步摄取仍按效果按需推进。
 
@@ -11,7 +11,7 @@ Java `rag` 继续拥有认证、租户、文档版本、幂等、Qdrant 写入�
 - Python `/v1/*` 只接受 Java 门面调用，要求服务 Bearer 密钥和 `X-Tenant-Id`。密钥只来自环境/Nacos，租户只来自 Java 当前可信上下文；Python 不能公开给浏览器。
 - `POST /v1/parses` 接收 `sourceName/title/contentBase64/maxChunkCharacters`，返回 `title/sourceName/sourceType/chunks`。每个切片含 `chunkType/sectionPath/locator/content/metadata`；metadata 保留页码、区块类型、坐标和来源名。请求不接受 URL 或本机路径。
 - `POST /v1/retrievals` 接收 `query/knowledgeBase/topK/candidateCount/similarityThreshold/maxContextCharacters`，返回 `hits/mode/degraded`；每个 hit 含 `id/score/payload`。必须过滤当前租户、知识库与 ACTIVE 状态，Java 再次验证返回范围。
-- 解析与检索开关独立，默认关闭。关闭检索开关即恢复现有 Java 链路；开启后的失败返回原有结构化不可用结果，不在超时后继续叠加一次长耗时回退查询。
+- 仅保留默认关闭的 `rag.engine.parse-enabled`，控制 PDF/图片解析。检索和图谱固定调用 Engine/Neo4j，部署前必须配置并验证引擎地址和服务密钥；失败返回原有结构化不可用结果，不叠加旧查询。恢复旧实现须回滚匹配的制品和配置，设置已删除的检索/图谱开关不会生效。
 - inspect/split 子进程的墙钟等待与解析预算对齐，不再单独固定 25 秒；API 外层 55 秒仍覆盖完整链路。真实 26 秒 split 回归和短总 deadline 杀死/回收回归分别验证正常与失败路径，CPU 20/21 秒、Linux AS 768 MiB、容器限额不变。失败日志仅记录受控阶段、耗时和原因/退出码。
 - OCR HTTP 读取等待使用解析预算，连接/池等待保持短超时；它不能延长 `/v1/parses` 的总 deadline，其他共享 HTTP 调用默认超时不变。真实本地延迟 HTTP 回归验证慢 OCR 可完成及总预算超时仍返回 504。
 - Python 整次检索有总超时，Java HTTP 检索上限 3500 毫秒，为上游 Dubbo 5000 毫秒留余量。超时、鉴权错误与无命中分别记录，日志不记录问题、文件正文或凭据。
@@ -23,7 +23,7 @@ Java `rag` 继续拥有认证、租户、文档版本、幂等、Qdrant 写入�
 - [x] 图片/PDF 检查真实类型、文件大小、页数、切片上限与处理超时；禁止路径穿越和任意 URL 获取。
 - [x] OCR 桩服务验证官方响应转换，真实模型结果另行验收。
 - [x] Java→Python 请求验证 Bearer 与租户；跨租户、跨知识库、非活动数据与损坏响应失败关闭。
-- [x] 新引擎关闭时无额外 HTTP 调用；开启时不重复执行旧检索。
+- [x] 检索固定经 Engine，失败直接结构化降级且不调用旧检索；PDF/图片解析开关关闭时拒绝该格式，不发解析 HTTP 请求。
 - [x] 50–100 题合成评估集可重复执行，Recall/MRR/nDCG/延迟可计算；合成集不代表真实业务效果。
 - [x] 新依赖锁定，Python 虚拟环境、缓存、运行结果、真实密钥不进 Git。
 
@@ -37,7 +37,7 @@ Qdrant 保留 unnamed dense vector；Java `hybrid-write-enabled` 打开时原子
 
 - `GET /api/rag/documents/{documentId}/chunks`：原管理权限、可信租户、有界游标分页；返回来源及页块 metadata，不返回向量和原始治理 payload。
 - admin-web 提供真实切片 Drawer 和浏览器本地脱敏评估报告读取；报告不上传服务器。
-- 图谱保持 MySQL 邻接表与现有 G6 页面，无需新增图数据库。PDF/图片使用页面、图片和区块语义，节点按白名单携带来源信息；总览保留没有概念关系的文档。历史图谱需从活动切片重新同步以补齐来源属性，不必重新 embedding。前端图谱可查看来源信息并在具备文档管理权限时打开切片。
+- 图谱统一由 Python Engine / Neo4j 生成，现有 G6 页面协议保持。PDF/图片使用页面、图片和区块语义，节点按白名单携带来源信息；总览保留没有概念关系的文档。历史图谱需从活动切片重新同步以补齐来源属性，不必重新 embedding。前端图谱可查看来源信息并在具备文档管理权限时打开切片。
 - Python 明确标记 `degraded=true` 时，Java 返回现有结构化检索不可用结果，不把未经重排相关度门槛保障的候选当作正常上下文。缺失标记沿用协议默认 `false`，错误类型失败关闭；外部 HTTP/Dubbo 契约不变。
 - CPU OCR 位于 `engine/ocr/`，真实 PaddleOCR 轻量模型只提供文字及坐标，能力标记明确排除完整表格/版面分析；本机真实中文 PNG/扫描 PDF 验证通过，约 1 GiB 峰值。NAS 按 2 GiB/2 CPU 硬限额部署，x86 容器结果单独验收。
 - rag-engine 限制 1.5 GiB/1 CPU。沿用 Qdrant 与千问；不为评估增加常驻 Langfuse 数据库等重服务。离线/真实评估输出可追溯指标，未生成答案时不声称已测 Ragas faithfulness。
@@ -45,7 +45,7 @@ Qdrant 保留 unnamed dense vector；Java `hybrid-write-enabled` 打开时原子
 
 启用前先跑 `./gradlew test bootJar`、`engine/` 测试和 `evaluation/` 回归，再使用独立测试知识库做真实 PDF/OCR 与检索试验。上线只改个人 github-dev 配置并读回；美联、Yudao 不在范围。Python 配置由部署环境注入，Java 配置发布遵循 Nacos CAS/备份要求。
 
-回滚先关闭 `rag.engine.retrieval-enabled`，保留旧 Java 检索；解析开关可独立关闭，已有向量和文档继续可读。无需回滚数据库 DDL或删除旧向量。检索改造不得复制公司业务数据。
+回滚须恢复上一套匹配的 Java/Engine 制品与配置；本版已移除旧检索/图谱开关，不能靠设置旧开关恢复 Java/MySQL 路径。解析开关仍可单独关闭。Qdrant 原文和文档数据保持，旧表候选不得自动执行；详见 [旧实现清理](legacy-rag-retirement.md)。
 
 ## 合成题库真实模型验收
 

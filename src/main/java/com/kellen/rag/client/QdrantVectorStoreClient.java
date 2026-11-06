@@ -7,7 +7,6 @@ import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.StoredVectorPoint;
 import com.kellen.rag.model.VectorPoint;
-import com.kellen.rag.model.VectorSearchHit;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -180,28 +179,6 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
             }
         }
         return points;
-    }
-
-    @Override
-    public List<VectorSearchHit> search(float[] vector, Map<String, Object> exactFilter,
-                                        int limit, double scoreThreshold) {
-        JsonNode response = post(collectionUrl() + "/points/search", Map.of(
-                "vector", vector,
-                "filter", filter(exactFilter),
-                "limit", Math.min(Math.max(limit, 1), 100),
-                "score_threshold", Math.max(0D, scoreThreshold),
-                "with_payload", true,
-                "with_vector", false
-        ), Map.of(), 60);
-        List<VectorSearchHit> hits = new ArrayList<>();
-        for (JsonNode item : response.path("result")) {
-            hits.add(new VectorSearchHit(
-                    item.path("id").asText(),
-                    item.path("score").asDouble(),
-                    objectMapper.convertValue(item.path("payload"), new TypeReference<>() { })
-            ));
-        }
-        return hits;
     }
 
     @Override

@@ -9,5 +9,4 @@ public interface EmbeddingClient {
 
     List<float[]> embedDocuments(List<String> texts);
 
-    float[] embedQuery(String query);
 }

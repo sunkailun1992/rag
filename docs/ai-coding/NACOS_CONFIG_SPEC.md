@@ -8,7 +8,7 @@
 
 `dev`、`test`、`prod` 三个 profile 当前均连接个人 `github-dev / DEFAULT_GROUP`，统一使用 `GITHUB_NACOS_DEV_*` 引导变量，Git 分支不切换环境，也不回落美联 dev。具体地址、控制台和 SDK 端口的区别见 [个人环境说明](../../../utils/ops/github-dev/README.md)。Yudao 与美联实际配置不在个人目录维护范围。
 
-当前 29 个 dataId 的职责和消费者清单见 [配置分类索引](../../../utils/ops/github-dev/nacos/README.md)。它来自九个服务的实际 `application-dev.yml` import，不能继续沿用早期五服务清单或公司 `aliyun.yaml` 配置清单。远端生效值仍以目标 Nacos 的当前读回为准，仓库只保存默认值和占位符。
+当前 27 个 dataId 的职责和消费者清单见 [配置分类索引](../../../utils/ops/github-dev/nacos/README.md)。它来自九个服务的实际 `application-dev.yml` import，不能继续沿用早期五服务清单或公司 `aliyun.yaml` 配置清单。远端生效值仍以目标 Nacos 的当前读回为准，仓库只保存默认值和占位符。
 
 ## 1. 引导与导入机制
 
@@ -25,12 +25,12 @@
 | 本地引导 | `application*.yml`，私有 `config/application-dev.properties` | 连接 Nacos 前需要的服务与环境入口；私有文件不进 Git |
 | 共享变量 | `reuse-configuration.yaml` | 跨文件引用的中间件地址、Dubbo 分组等 `custom.*` 变量 |
 | 共享基础设施 | `redis.yaml`、`rabbitmq.yaml`、`elasticsearch.yaml`、`qdrant.yaml`、`dubbo.yaml`、`mybatis-plus.yaml`、`seata.yaml`、`xxl-job.yaml`、`storage.yaml` | 中间件连接、隔离边界及模块开关；存储使用 X File Storage / MinIO |
-| 安全与可观测性 | `security-auth.yaml`、`security-jwt.yaml`、`actuator.yaml`、`logging.yml`、`traffic-governance.yaml`、`swagger.yaml`、`zipkin.yaml`、`admin.yaml` | 认证/租户、人员 JWT、管理端点、日志、流量治理及监控 |
+| 安全与可观测性 | `security-auth.yaml`、`security-jwt.yaml`、`actuator.yaml`、`logging.yml`、`traffic-governance.yaml`、`swagger.yaml` | 认证/租户、人员 JWT、管理端点、日志、流量治理及监控 |
 | 共享 AI 协议 | `a2a.yaml` | A2A 租户、协议入口、提供方和注册契约 |
 | 共享 AI 模型 | `ai-model-secrets.yaml` | 模型选择及私有凭据占位符，按实际消费者导入 |
 | 服务配置 | `{service}-spring.yaml` | 同一服务的数据源、模型选择、路由及服务专属参数；共享配置仍独立维护 |
 
-分类是维护索引，不是新的目录或 group。当前保留 29 个 dataId 和 `DEFAULT_GROUP`；经单独授权并验证后，5 个服务专属文件合并到相邻的 `{service}-spring.yaml`，3 个空服务文件移除。不得在纯注释任务中擅自再次调整结构。
+分类是维护索引，不是新的目录或 group。当前保留 27 个 dataId 和 `DEFAULT_GROUP`；经单独授权并验证后，5 个服务专属文件合并到相邻的 `{service}-spring.yaml`，3 个空服务文件移除。不得在纯注释任务中擅自再次调整结构。
 
 ## 3. 配置归属与隔离
 
@@ -45,7 +45,7 @@
 
 各服务当前 import 清单及顺序以其三个 profile 文件为准。分类索引只说明谁导入，不要求按表格顺序重排。重复键覆盖、optional 与动态刷新语义均须单独评估，不能只用 YAML 可解析证明重排安全。
 
-在同级 `utils` 中运行 `python3 ops/github-dev/scripts/verify_configuration.py`，检查九个服务的 27 个 profile、29 个 dataId、环境隔离和网关路径契约；新增或删除 import 时同步更新分类索引和受影响消费者。
+在同级 `utils` 中运行 `python3 ops/github-dev/scripts/verify_configuration.py`，检查九个服务的 27 个 profile、27 个 dataId、环境隔离和网关路径契约；新增或删除 import 时同步更新分类索引和受影响消费者。
 
 ## 5. 修改与发布
 

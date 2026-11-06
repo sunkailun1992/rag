@@ -58,8 +58,6 @@ public class RagEngineClient {
     }
 
     public boolean isParseEnabled() { return properties.isParseEnabled(); }
-    public boolean isRetrievalEnabled() { return properties.isRetrievalEnabled(); }
-    public boolean isGraphEnabled() { return properties.isGraphEnabled(); }
 
     /** 提交有界活动来源快照；返回任务接收状态，不能视为图谱完成。 */
     public GraphBuildVO buildGraph(String knowledgeBase, List<ActiveGraphSource> sources, boolean reconcile) {

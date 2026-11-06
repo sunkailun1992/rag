@@ -4,7 +4,7 @@
 
 沿用已确定的 FastAPI + LlamaIndex PropertyGraph + Neo4j + Qdrant 方案。Java 是认证、租户和活动文档来源的权威门面；Python 负责有证据的实体关系抽取与派生图索引。Qdrant 保留原有切片、dense/sparse schema、embedding 模型与维度。前端只访问 Java，不持有内部服务或模型凭据。美联与 Yudao 不在本轮范围。
 
-候选 LightRAG 属于另一套检索编排，不叠加；原 MySQL 结构投影保留为显式关闭新开关后的回滚路径。Neo4j Community 使用既有 `neo4j` 数据库，以租户、知识库及来源身份隔离，不为每个租户创建数据库。
+候选 LightRAG 属于另一套检索编排，不叠加；旧 MySQL 结构投影与迁移开关已退役。Neo4j Community 使用既有 `neo4j` 数据库，以租户、知识库及来源身份隔离，不为每个租户创建数据库。
 
 ## 构建与发布
 
@@ -12,7 +12,7 @@
 
 Java 生成最多 10000 条活动切片身份快照，Python 仅按快照读取 Qdrant，并逐项复核 tenant、KB、documentId、version、revision、chunkId 和 contentSha256。来源内容不由浏览器传入图引擎。全量范围超限整次拒绝，不得截断后清理。
 
-Neo4j路径的Java快照使用Qdrant payload selector，仅读取tenant/KB/ACTIVE及七项来源身份需要的9个字段；点ID仍取顶层id。完整count/scroll/count、重复检查与查询前后身份比较保留。旧MySQL投影单独使用完整payload，不改变其正文和结构字段。Python仍自行回读并校验原文，不以Java提供的哈希代替正文指纹核对。
+Neo4j路径的Java快照使用Qdrant payload selector，仅读取tenant/KB/ACTIVE及七项来源身份需要的9个字段；点ID仍取顶层id。完整count/scroll/count、重复检查与查询前后身份比较保留。旧MySQL投影已删除，Java不再为图谱下载全文。Python仍自行回读并校验原文，不以Java提供的哈希代替正文指纹核对。
 
 图模型使用显式固定的千问快照和Pydantic生成的严格JSON Schema：响应仅含 `triples`，每项仅含必填 `subjectQuote/predicate/objectQuote` 字符串，长度1至160、关系上限与配置相同。两个Quote字段要求单个连续原文引用，不生成组装后的概念别名。对象形状完整验证后，字段原值一一转入官方Simple提取器，不做类型转换、筛项、裁长或自由格式降级。完整字段/原文匹配和后续作用域防线保留。
 
@@ -51,6 +51,6 @@ Neo4j路径的Java快照使用Qdrant payload selector，仅读取tenant/KB/ACTIV
 
 ## 配置与交付
 
-Java 新增 `rag.engine.graph-enabled`，缺省 false；已有 Nacos 模板追加参数与用途、单位、关闭行为注释。Python 新增私有 Neo4j 连接、graph model、并发、队列和超时参数，真实值仅在 Git 外与个人 github-dev。官方 `llama-index-graph-stores-neo4j==0.8.0` 与现有 core 0.14.25 配套；使用现有 bounded HTTP 的 LlamaIndex LLM adapter 或具备相同边界的官方适配，禁止悄悄使用默认 OpenAI 凭据/embedding。
+Java 固定使用 Engine/Neo4j，已移除旧后端迁移开关。Python 新增私有 Neo4j 连接、graph model、并发、队列和超时参数，真实值仅在 Git 外与个人 github-dev。官方 `llama-index-graph-stores-neo4j==0.8.0` 与现有 core 0.14.25 配套；使用现有 bounded HTTP 的 LlamaIndex LLM adapter 或具备相同边界的官方适配，禁止悄悄使用默认 OpenAI 凭据/embedding。
 
-验收分开记录：本地测试、真实 Neo4j/APOC、真实 Qwen 抽取、Java 网关与浏览器、多租户/KB/删除/换版反例、Git/CI、镜像部署。未经实际验证不得宣称后一阶段完成。回滚先关 Java 图开关，旧投影可从 Qdrant 重建；不删除旧 MySQL 表或 Qdrant collection。
+验收分开记录：本地测试、真实 Neo4j/APOC、真实 Qwen 抽取、Java 网关与浏览器、多租户/KB/删除/换版反例、Git/CI、镜像部署。未经实际验证不得宣称后一阶段完成。回滚恢复匹配制品和配置；本版不支持旧开关回滚。旧表清理候选只作审查，不自动执行，不删除 Qdrant collection。

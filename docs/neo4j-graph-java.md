@@ -1,6 +1,6 @@
 # Java 图谱门面与异步任务
 
-设计契约见 [neo4j-graph-design.md](neo4j-graph-design.md)。`rag.engine.graph-enabled` 缺省 `false`，关闭时沿用 MySQL 结构投影，旧 Controller 路径、节点类型和 VO 构造调用保持兼容。
+设计契约见 [neo4j-graph-design.md](neo4j-graph-design.md)。Neo4j 是唯一图后端；旧 Controller 路径、节点类型和 VO 契约保持兼容，迁移开关已移除。
 
 ## 接口与状态
 
@@ -21,7 +21,7 @@ Java 从 Qdrant 当前租户的 ACTIVE 切片生成完整身份快照。计数�
 
 ## 生命周期与预算
 
-异步后端先完成向量读回、激活及版本对账，再提交图任务；图任务失败不回滚成功的向量。关闭新开关时保留同步 MySQL 的先图后版本对账顺序和原失败补偿。
+异步后端先完成向量读回、激活及版本对账，再提交图任务；图任务失败不回滚成功的向量。不再执行同步 MySQL 投影；删除屏障、revision 与向量失败补偿仍保留。
 
 停用文档先读取当前租户该文档的最大业务 revision，要求 Python 成功建立删除屏障并返回 epoch/revision 票据，失败时不继续修改 Qdrant 为 DELETED。向量更新失败后的图恢复必须携带本次票据，由服务重新读取仍为 ACTIVE 且 revision 相符的来源并创建任务；Python 再检查 epoch，旧补偿不能清除新删除。票据不进入公开 VO，普通同步不携带它。没有 ACTIVE 来源的单文档同步会明确停用旧图，空 KB 全量同步仍提交空来源对账任务。
 
@@ -37,4 +37,4 @@ Python 检索的可选图增强继续返回 `mode=dense|hybrid`，另以 `graphA
 
 运行 `./gradlew test --no-daemon`，不依赖开发 Nacos、真实租户、Neo4j 或付费模型。真实跨语言进程、Neo4j/Qwen、部署与浏览器验收分别取证，不能由本组替身测试推定。
 
-回滚关闭图开关，再从 Qdrant 全量同步重建原 MySQL 结构图；不删除既有 MySQL 表或 Qdrant collection。
+回滚恢复匹配的 Java/Engine 制品和配置；本版无法用旧开关恢复 MySQL。旧表的备份和人工清理边界见 [旧实现清理](legacy-rag-retirement.md)。

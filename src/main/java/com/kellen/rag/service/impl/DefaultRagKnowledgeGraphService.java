@@ -4,27 +4,17 @@ import com.kellen.rag.client.VectorStoreClient;
 import com.kellen.rag.client.RagEngineClient;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.entity.enums.RagGraphNodeType;
-import com.kellen.rag.entity.vo.RagGraphEdgeVO;
-import com.kellen.rag.entity.vo.RagGraphNodeVO;
 import com.kellen.rag.entity.vo.RagGraphSyncVO;
 import com.kellen.rag.entity.vo.RagKnowledgeGraphVO;
 import com.kellen.rag.entity.vo.GraphBuildVO;
 import com.kellen.rag.model.ActiveGraphSource;
 import com.kellen.rag.model.GraphRemovalFence;
 import com.kellen.rag.exception.ExternalServiceException;
-import com.kellen.rag.graph.KnowledgeGraphProjector;
-import com.kellen.rag.model.KnowledgeGraphEdge;
-import com.kellen.rag.model.KnowledgeGraphNode;
-import com.kellen.rag.model.KnowledgeGraphProjection;
-import com.kellen.rag.model.KnowledgeGraphQuery;
-import com.kellen.rag.model.KnowledgeGraphSnapshot;
 import com.kellen.rag.model.KnowledgeGraphViewMode;
 import com.kellen.rag.model.StoredVectorPoint;
 import com.kellen.rag.service.RagKnowledgeGraphService;
-import com.kellen.rag.store.KnowledgeGraphStore;
 import com.kellen.utils.context.TenantContextHolder;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashMap;
@@ -34,7 +24,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * 从 Qdrant 活动切片构建图谱，并通过存储端口提供查询结果。
@@ -50,85 +39,33 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
 
     private final RagVectorProperties properties;
     private final VectorStoreClient vectorStoreClient;
-    private final KnowledgeGraphProjector projector;
-    private final KnowledgeGraphStore graphStore;
     private final RagEngineClient engine;
 
     public DefaultRagKnowledgeGraphService(RagVectorProperties properties,
                                            VectorStoreClient vectorStoreClient,
-                                           KnowledgeGraphProjector projector,
-                                           KnowledgeGraphStore graphStore) {
-        this(properties, vectorStoreClient, projector, graphStore, null);
-    }
-
-    @Autowired
-    public DefaultRagKnowledgeGraphService(RagVectorProperties properties,
-                                           VectorStoreClient vectorStoreClient,
-                                           KnowledgeGraphProjector projector,
-                                           KnowledgeGraphStore graphStore,
                                            RagEngineClient engine) {
         this.properties = properties;
         this.vectorStoreClient = vectorStoreClient;
-        this.projector = projector;
-        this.graphStore = graphStore;
         this.engine = engine;
-    }
-
-    @Override
-    public boolean isAsynchronous() {
-        return engineEnabled();
     }
 
     @Override
     public RagGraphSyncVO sync(String knowledgeBase) {
         String tenantId = requireTenant();
         String base = safeCode(knowledgeBase, properties.getDefaultKnowledgeBase());
-        if (engineEnabled()) {
-            return RagGraphSyncVO.fromBuild(engine.buildGraph(base, snapshot(tenantId, base, null).sources(), true));
-        }
-        if (!vectorStoreClient.collectionExists()) {
-            return new RagGraphSyncVO(base, 0, 0, 0);
-        }
-        Map<String, Object> filter = filter(tenantId, base, null);
-        requireBoundedPointCount(filter);
-        Map<String, List<StoredVectorPoint>> documents = vectorStoreClient
-                .scroll(filter, MAX_SYNC_POINTS, false).stream()
-                .collect(Collectors.groupingBy(point -> text(point.payload(), "document_id"),
-                        LinkedHashMap::new, Collectors.toList()));
-        int nodes = 0;
-        int edges = 0;
-        for (List<StoredVectorPoint> points : documents.values()) {
-            KnowledgeGraphProjection projection = projector.project(tenantId, points);
-            graphStore.save(projection);
-            nodes += projection.nodes().size();
-            edges += projection.edges().size();
-        }
-        graphStore.retainActiveDocuments(tenantId, base, documents.keySet());
-        return new RagGraphSyncVO(base, documents.size(), nodes, edges);
+        return RagGraphSyncVO.fromBuild(engine.buildGraph(base, snapshot(tenantId, base, null).sources(), true));
     }
 
     @Override
     public RagGraphSyncVO syncDocument(String documentId) {
         String tenantId = requireTenant();
         String id = requiredId(documentId);
-        if (engineEnabled()) {
-            ActiveSnapshot snapshot = snapshot(tenantId, null, id);
-            if (snapshot.sources().isEmpty()) {
-                deactivateDocumentWithFence(id);
-                return new RagGraphSyncVO("", 0, 0, 0, null, "SUCCEEDED");
-            }
-            return RagGraphSyncVO.fromBuild(engine.buildGraph(snapshot.knowledgeBase(), snapshot.sources(), false));
+        ActiveSnapshot snapshot = snapshot(tenantId, null, id);
+        if (snapshot.sources().isEmpty()) {
+            deactivateDocumentWithFence(id);
+            return new RagGraphSyncVO("", 0, 0, 0, null, "SUCCEEDED");
         }
-        Map<String, Object> filter = filter(tenantId, null, id);
-        requireBoundedPointCount(filter);
-        List<StoredVectorPoint> points = vectorStoreClient.scroll(filter, MAX_SYNC_POINTS, false);
-        if (points.isEmpty()) {
-            return new RagGraphSyncVO("", 0, 0, 0);
-        }
-        KnowledgeGraphProjection projection = projector.project(tenantId, points);
-        graphStore.save(projection);
-        return new RagGraphSyncVO(projection.knowledgeBase(), 1,
-                projection.nodes().size(), projection.edges().size());
+        return RagGraphSyncVO.fromBuild(engine.buildGraph(snapshot.knowledgeBase(), snapshot.sources(), false));
     }
 
     @Override
@@ -140,14 +77,11 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
     public GraphRemovalFence deactivateDocumentWithFence(String documentId) {
         String tenant = requireTenant();
         String id = requiredId(documentId);
-        if (engineEnabled()) return engine.deactivateGraphDocument(id, existingRevision(tenant, id));
-        graphStore.deactivateDocument(tenant, id);
-        return null;
+        return engine.deactivateGraphDocument(id, existingRevision(tenant, id));
     }
 
     @Override
     public RagGraphSyncVO restoreDocument(String documentId, GraphRemovalFence fence) {
-        if (!engineEnabled()) return syncDocument(documentId);
         String tenant = requireTenant();
         String id = requiredId(documentId);
         if (fence == null || !id.equals(fence.documentId()) || fence.barrierEpoch() <= 0) {
@@ -165,7 +99,6 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
     public GraphBuildVO build(String buildId, String knowledgeBase) {
         requireTenant();
         String base = safeCode(knowledgeBase, properties.getDefaultKnowledgeBase());
-        if (!engineEnabled()) throw new IllegalArgumentException("异步知识图谱尚未启用");
         return engine.graphBuild(buildId, base);
     }
 
@@ -178,36 +111,14 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
         String search = normalizeSearch(searchText);
         KnowledgeGraphViewMode mode = viewMode == null ? KnowledgeGraphViewMode.OVERVIEW : viewMode;
         int boundedLimit = Math.min(Math.max(limit == null ? 240 : limit, 20), 500);
-        if (engineEnabled()) {
-            ActiveSnapshot before = snapshot(tenantId, base, null);
-            RagKnowledgeGraphVO result = engine.queryGraph(base, before.sources(), search, nodeType, mode, boundedLimit);
-            ActiveSnapshot after = snapshot(tenantId, base, null);
-            // 查询期间删文档或换版时拒绝旧响应，避免把旧图证据展示成当前活动知识。
-            if (!new HashSet<>(before.sources()).equals(new HashSet<>(after.sources()))) {
-                throw ExternalServiceException.httpFailure("RAG engine graph source changed", 502);
-            }
-            return result;
+        ActiveSnapshot before = snapshot(tenantId, base, null);
+        RagKnowledgeGraphVO result = engine.queryGraph(base, before.sources(), search, nodeType, mode, boundedLimit);
+        ActiveSnapshot after = snapshot(tenantId, base, null);
+        // 查询期间删文档或换版时拒绝旧响应，避免把旧图证据展示成当前活动知识。
+        if (!new HashSet<>(before.sources()).equals(new HashSet<>(after.sources()))) {
+            throw ExternalServiceException.httpFailure("RAG engine graph source changed", 502);
         }
-        KnowledgeGraphSnapshot snapshot = graphStore.query(new KnowledgeGraphQuery(
-                tenantId, base, search, nodeType, mode, boundedLimit));
-        List<RagGraphNodeVO> nodes = snapshot.nodes().stream().map(this::toNodeVO).toList();
-        List<RagGraphEdgeVO> edges = snapshot.edges().stream().map(this::toEdgeVO).toList();
-        Map<String, Long> nodeCounts = snapshot.nodes().stream().collect(Collectors.groupingBy(
-                node -> node.type().name(), LinkedHashMap::new, Collectors.counting()));
-        Map<String, Long> relationCounts = snapshot.edges().stream().collect(Collectors.groupingBy(
-                edge -> edge.type().name(), LinkedHashMap::new, Collectors.counting()));
-        return new RagKnowledgeGraphVO(base, mode.name(), nodes.size(), edges.size(),
-                snapshot.truncated(), nodeCounts, relationCounts, nodes, edges);
-    }
-
-    private RagGraphNodeVO toNodeVO(KnowledgeGraphNode node) {
-        return new RagGraphNodeVO(node.id(), node.type().name(), node.name(), node.label(),
-                node.documentId(), node.documentCode(), node.documentVersion(), node.sourceLocator(),
-                node.properties());
-    }
-
-    private boolean engineEnabled() {
-        return engine != null && engine.isGraphEnabled();
+        return result;
     }
 
     /** 删除屏障保存当前已知最大业务 revision，包括已停用或失败的同文档切片。 */
@@ -291,11 +202,6 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
     }
 
     private record ActiveSnapshot(String knowledgeBase, List<ActiveGraphSource> sources) {
-    }
-
-    private RagGraphEdgeVO toEdgeVO(KnowledgeGraphEdge edge) {
-        return new RagGraphEdgeVO(edge.id(), edge.sourceNodeId(), edge.targetNodeId(),
-                edge.type().name(), edge.label(), edge.sourceLocator(), edge.properties());
     }
 
     private Map<String, Object> filter(String tenantId, String knowledgeBase, String documentId) {

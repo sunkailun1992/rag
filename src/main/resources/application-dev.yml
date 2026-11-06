@@ -71,10 +71,6 @@ spring:
       - "optional:nacos:elasticsearch.yaml?refreshEnabled=true"
       # seata.yaml：Seata 分布式事务客户端配置。
       - "optional:nacos:seata.yaml?refreshEnabled=true"
-      # zipkin.yaml：链路追踪采样和上报配置。
-      - "optional:nacos:zipkin.yaml?refreshEnabled=true"
-      # admin.yaml：Spring Boot Admin 注册和监控配置。
-      - "optional:nacos:admin.yaml?refreshEnabled=true"
       # dubbo.yaml：Dubbo RPC、注册中心和协议配置。
       - "optional:nacos:dubbo.yaml?refreshEnabled=true"
       # xxl-job.yaml：XXL-JOB 执行器配置。

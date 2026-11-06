@@ -160,15 +160,11 @@ public class DefaultRagDocumentService implements RagDocumentService {
                 }
                 vectorStoreClient.setPayload(filter(tenantId, null, "document_id", documentId),
                         Map.of("document_status", STATUS_ACTIVE));
-                // 关闭新后端时保留同步图的原顺序：图成功后才退役上一活动版本。
-                boolean asynchronousGraph = graphService.isAsynchronous();
-                var graph = asynchronousGraph ? null : graphService.syncDocument(documentId);
                 reconcileVersions(tenantId, base, code);
                 StoredVectorPoint stored = vectorStoreClient.scroll(filter(
                         tenantId, base, "document_id", documentId), 1, false).get(0);
                 RagDocumentValidationVO validation = validateInternal(tenantId, documentId);
-                return asynchronousGraph ? withGraphResult(toDocument(stored), false, validation)
-                        : new RagDocumentIngestionVO(toDocument(stored), false, validation, graph, "SUCCEEDED");
+                return withGraphResult(toDocument(stored), false, validation);
             } catch (RuntimeException exception) {
                 try {
                     vectorStoreClient.setPayload(filter(tenantId, null, "document_id", documentId),
@@ -322,7 +318,6 @@ public class DefaultRagDocumentService implements RagDocumentService {
             String status = graph == null || graph.status() == null ? "SUCCEEDED" : graph.status();
             return new RagDocumentIngestionVO(document, idempotent, validation, graph, status);
         } catch (RuntimeException exception) {
-            if (!graphService.isAsynchronous()) throw exception;
             // 不传播外部异常正文；前端可显式重试图谱同步，向量检索继续可用。
             return new RagDocumentIngestionVO(document, idempotent, validation, null, "FAILED");
         }

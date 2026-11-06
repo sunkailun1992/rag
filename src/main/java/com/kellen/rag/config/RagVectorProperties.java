@@ -24,7 +24,6 @@ public class RagVectorProperties {
     private String qwenApiKey;
     private String embeddingModel = "text-embedding-v4";
     private int embeddingDimension = 1024;
-    private String rerankModel = "qwen3-rerank";
     private int embeddingBatchSize = 10;
     private int vectorBatchSize = 64;
     private int candidateCount = 30;

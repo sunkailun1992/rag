@@ -86,7 +86,6 @@ class RagClientBoundaryRegressionTest {
         engine.setBaseUrl(root);
         engine.setApiKey(UUID.randomUUID().toString() + UUID.randomUUID());
         engine.setParseEnabled(true);
-        engine.setRetrievalEnabled(true);
         vector.setQdrantUrl(root);
         vector.setCollectionName("boundary-fixture");
         vector.setHybridWriteEnabled(true);

@@ -2,7 +2,6 @@ package com.kellen.rag.client;
 
 import com.kellen.rag.model.StoredVectorPoint;
 import com.kellen.rag.model.VectorPoint;
-import com.kellen.rag.model.VectorSearchHit;
 
 import java.util.List;
 import java.util.Map;
@@ -31,9 +30,6 @@ public interface VectorStoreClient {
                                                             int limit, String offset) {
         throw new UnsupportedOperationException("向量存储未实现分页查询");
     }
-
-    List<VectorSearchHit> search(float[] vector, Map<String, Object> exactFilter,
-                                 int limit, double scoreThreshold);
 
     void setPayload(Map<String, Object> exactFilter, Map<String, Object> payload);
 

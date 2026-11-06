@@ -8,19 +8,19 @@
 
 ## Python 引擎演进
 
-本批 Java 版本为 `1.1.5`，同仓独立的 [`engine/`](engine/README.md) 负责解析、检索与可选的语义图谱构建。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入和图谱来源终检；现有 HTTP 和 Dubbo 契约保持。
+本批 Java 版本为 `1.1.6`，同仓独立的 [`engine/`](engine/README.md) 负责解析、检索与可选的语义图谱构建。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入和图谱来源终检；现有 HTTP 和 Dubbo 契约保持。
 
 - 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
-- `rag.engine.retrieval-enabled` 默认 false。开启后使用 Python 检索，失败不叠加旧查询；关闭可恢复 Java 检索。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
+- 检索统一调用 Python Engine，失败直接返回现有 RPC 降级结果；旧 Java 查询/重排与迁移开关已移除。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
 - PDF/OCR 保存页码、区块、坐标与全部重复来源 metadata。解析有大小、页数、并发、CPU/内存和总时间限制；不支持任意 URL/文件路径输入。
 - [`evaluation/`](evaluation/README.md) 提供 60 题合成基准、28 篇通用技术语料和 Recall/MRR/nDCG/延迟评估器，不能代替真实样本质量验收。
-- Nacos 唯一模板仍在 `../utils/ops/github-dev/nacos/DEFAULT_GROUP/rag-spring.yaml`；解析、检索与图谱迁移开关默认关闭，按实际验收分别启用。Java 引擎密钥与 Python 环境变量需一致，不能放在前端或公开 Git。
+- Nacos 唯一模板仍在 `../utils/ops/github-dev/nacos/DEFAULT_GROUP/rag-spring.yaml`；仅 PDF/图片解析的 `rag.engine.parse-enabled` 开关保留且默认关闭；检索和图谱固定使用 Engine/Neo4j，部署前必须配置并验证引擎地址与服务密钥。Java 引擎密钥与 Python 环境变量需一致，不能放在前端或公开 Git；回滚须恢复匹配的制品和配置。
 
 完整范围、验收与回滚见 [改版手册](docs/rag-engine-upgrade.md)，Python 环境、接口契约与部署见 [引擎文档](engine/README.md)。轻量引擎与 OCR 模型分别部署；NAS 示例限制引擎 1.5 GiB，不包含 OCR 权重。
 
 ## LlamaIndex 与 Neo4j 知识图谱
 
-启用 `rag.engine.graph-enabled` 后，原有 `/api/rag/graphs` 接口通过 Java 门面读取 Neo4j 派生索引。Python 使用 LlamaIndex PropertyGraph 及官方 Neo4j 适配器，Qwen 只用于实体关系抽取；Qdrant 的原文、dense/sparse schema 与嵌入维度保持独立。关闭开关继续使用原 MySQL 文档结构投影。
+原有 `/api/rag/graphs` 接口通过 Java 门面读取 Neo4j 派生索引。Python 使用 LlamaIndex PropertyGraph 及官方 Neo4j 适配器，Qwen 只用于实体关系抽取；Qdrant 的原文、dense/sparse schema 与嵌入维度保持独立。旧 MySQL 文档结构投影与迁移开关已移除。
 
 构建为异步任务：同步接口返回 `buildId/status`，状态接口 `GET /api/rag/graphs/builds/{id}?knowledgeBase=...` 区分排队、运行、完成和失败。上传成功只表示向量写入和校验完成；图谱抽取失败不会撤销活动向量，可在图谱页重试。新图在完整构建和来源重检后才发布，失败时保留之前可用的图。
 
@@ -62,7 +62,7 @@ python3 scripts/verify-rag-engine.py
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com:utils:1.5.2`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
+- 公共能力依赖 `com:utils:1.5.3`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
 - 个人与公司共用私有 Maven 地址，utils 分别使用 `com` 与 `com.kellen` group 隔离；Java 包名保持 `com.kellen.*`。
 - 测试框架统一使用 JUnit 5
 
@@ -105,8 +105,6 @@ redis.yaml
 rabbitmq.yaml
 elasticsearch.yaml
 seata.yaml
-zipkin.yaml
-admin.yaml
 dubbo.yaml
 xxl-job.yaml
 a2a.yaml                # A2A / Nacos AI Registry 共享契约，rag 作为 AI 能力注册方引用 ${custom.a2a-*}
@@ -114,7 +112,7 @@ a2a.yaml                # A2A / Nacos AI Registry 共享契约，rag 作为 AI �
 
 ## DDL
 
-MyBatis-Plus DDL 入口在 `src/main/java/com/kellen/bean/MysqlDdl.java`。文档注册、切片元数据和向量保存在 Qdrant payload；知识图谱作为可重建派生索引，使用 `db/rag-knowledge-graph-schema.sql` 创建节点与关系表。两张表的唯一索引都显式包含 `tenant_id + knowledge_base + stable code`。
+文档注册、切片元数据和向量保存在 Qdrant payload；Neo4j 是唯一派生图实现。旧节点/边表和自动建表入口已退役，历史建表 SQL 保留作为历史证据；独立清理候选与回滚边界见 [旧实现清理](docs/legacy-rag-retirement.md)。
 
 全新或空业务库首次启动前，必须先在目标业务库手动执行公共基础设施脚本：
 
@@ -161,3 +159,9 @@ bash scripts/check-secrets.sh
 如果依赖 `utils` 有调整，先在同级 `utils` 项目执行 `./gradlew publishToMavenLocal`，再回到本项目编译。
 
 通用安全、隔离与本批验证边界见 [安全与架构说明](docs/security-architecture-sync.md)。
+
+## 本批可观测性接入
+
+公共能力精确消费 `com:utils:1.5.3`（本批仅 Maven Local 验证，未发布远端）。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
+
+Admin/Zipkin 模板与三 profile 的 imports 已退役。服务 JVM 的可选 OTel agent 由统一启动入口负责，不通过全局 JAVA_TOOL_OPTIONS 注入 Gradle 或测试。部署时 Java 指标只由 Micrometer Prometheus 提供，OTEL_METRICS_EXPORTER 与 OTEL_LOGS_EXPORTER 均为 none；监控组件、配置发布和实际采集仍须独立验证。回滚须恢复匹配的制品与配置，先恢复旧 dataId 再回退旧消费者，不能用已删除的配置项假装完成回滚。

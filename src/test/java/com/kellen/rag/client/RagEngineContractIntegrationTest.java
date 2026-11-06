@@ -53,7 +53,6 @@ class RagEngineContractIntegrationTest {
     @Autowired private DefaultRagRetrievalService retrievalService;
     @MockitoBean private EmbeddingClient embedding;
     @MockitoBean private VectorStoreClient vectors;
-    @MockitoBean private RerankClient reranker;
     private HttpServer server;
     private ExecutorService executor;
     private String tenant;
@@ -105,7 +104,6 @@ class RagEngineContractIntegrationTest {
         engine.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
         engine.setApiKey(key);
         engine.setParseEnabled(true);
-        engine.setRetrievalEnabled(true);
         engine.setRetrievalTimeoutMillis(3500);
         engine.setParseTimeoutMillis(1000);
         engine.setMaxResponseBytes(1024 * 1024);
@@ -147,7 +145,7 @@ class RagEngineContractIntegrationTest {
             assertThat(result.getSourceCount()).isZero();
         }
         assertThat(requests.get()).isEqualTo(2);
-        verifyNoInteractions(embedding, vectors, reranker);
+        verifyNoInteractions(embedding, vectors);
     }
 
     @Test
@@ -163,7 +161,7 @@ class RagEngineContractIntegrationTest {
             assertThat(result.getContext()).contains("Synthetic fixture paragraph");
             assertThat(result.getChunks()).hasSize(1);
         }
-        verifyNoInteractions(embedding, vectors, reranker);
+        verifyNoInteractions(embedding, vectors);
     }
 
     @Test
@@ -175,7 +173,7 @@ class RagEngineContractIntegrationTest {
         assertThat(result.isMatched()).isTrue();
         assertThat(result.getMessage()).isEqualTo("ok");
         assertThat(result.getContext()).contains("Synthetic fixture paragraph");
-        verifyNoInteractions(embedding, vectors, reranker);
+        verifyNoInteractions(embedding, vectors);
     }
 
     @Test

@@ -2,13 +2,11 @@ package com.kellen.rag.service.impl;
 
 import com.kellen.rag.client.EmbeddingClient;
 import com.kellen.rag.client.RagEngineClient;
-import com.kellen.rag.client.RerankClient;
 import com.kellen.rag.client.VectorStoreClient;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.KnowledgeChunkDraft;
 import com.kellen.rag.model.ParsedKnowledgeDocument;
-import com.kellen.rag.model.RerankResult;
 import com.kellen.rag.model.StoredVectorPoint;
 import com.kellen.rag.model.VectorPoint;
 import com.kellen.rag.model.VectorSearchHit;
@@ -67,7 +65,6 @@ class RagEngineRoutingIntegrationTest {
     @MockitoBean private RagEngineClient engine;
     @MockitoBean private EmbeddingClient embedding;
     @MockitoBean private VectorStoreClient vectors;
-    @MockitoBean private RerankClient reranker;
     @MockitoBean private KnowledgeDocumentParser parser;
     @MockitoBean private RagKnowledgeGraphService graphs;
     private String tenant;
@@ -96,7 +93,6 @@ class RagEngineRoutingIntegrationTest {
 
     @Test
     void shouldBuildExistingRpcContextFromEngineHitsWithoutLegacyCalls() {
-        when(engine.isRetrievalEnabled()).thenReturn(true);
         VectorSearchHit hit = hit("Engine evidence", "source.pdf", "第2页");
         when(engine.retrieve(anyString(), anyString(), anyInt(), anyInt(), anyDouble(), anyInt()))
                 .thenReturn(List.of(hit));
@@ -112,25 +108,7 @@ class RagEngineRoutingIntegrationTest {
         assertThat(result.getChunks()).hasSize(1);
         assertThat(result.getChunks().get(0).getDocumentId()).isEqualTo(hit.payload().get("document_id"));
         verify(engine).retrieve("synthetic query", "routing-test", 6, 30, .2D, 12000);
-        verifyNoInteractions(embedding, vectors, reranker);
-    }
-
-    @Test
-    void shouldUseLegacyRouteWhenEngineSwitchIsOff() {
-        when(engine.isRetrievalEnabled()).thenReturn(false);
-        float[] queryVector = new float[]{1, 0};
-        when(embedding.embedQuery("synthetic query")).thenReturn(queryVector);
-        when(vectors.search(eq(queryVector), anyMap(), eq(30), eq(.2D)))
-                .thenReturn(List.of(hit("Legacy evidence", "source.docx", "段落1")));
-        when(reranker.rerank("synthetic query", List.of("Legacy evidence"), 6))
-                .thenReturn(List.of(new RerankResult(0, .8D)));
-
-        RagRetrievalRpcDTO result = retrievalService.retrieve(request());
-
-        assertThat(result.getContext()).contains("Legacy evidence");
-        verify(vectors).search(queryVector, Map.of("tenant_id", tenant, "knowledge_base", "routing-test",
-                "document_status", "ACTIVE"), 30, .2D);
-        verify(engine, never()).retrieve(anyString(), anyString(), anyInt(), anyInt(), anyDouble(), anyInt());
+        verifyNoInteractions(embedding, vectors);
     }
 
     @Test
@@ -143,12 +121,11 @@ class RagEngineRoutingIntegrationTest {
         assertThat(result.isMatched()).isFalse();
         assertThat(result.getContext()).isEmpty();
         assertThat(result.getMessage()).isEqualTo("RAG retrieval is disabled");
-        verifyNoInteractions(engine, embedding, vectors, reranker);
+        verifyNoInteractions(engine, embedding, vectors);
     }
 
     @Test
     void shouldNotAppendLegacyWorkAfterEngineFailure() {
-        when(engine.isRetrievalEnabled()).thenReturn(true);
         when(engine.retrieve(anyString(), anyString(), anyInt(), anyInt(), anyDouble(), anyInt()))
                 .thenThrow(ExternalServiceException.httpFailure("RAG engine", 504));
 
@@ -158,12 +135,11 @@ class RagEngineRoutingIntegrationTest {
         assertThat(result.getContext()).isEmpty();
         assertThat(result.getChunks()).isEmpty();
         assertThat(result.getMessage()).isEqualTo("RAG retrieval is temporarily unavailable");
-        verifyNoInteractions(embedding, vectors, reranker);
+        verifyNoInteractions(embedding, vectors);
     }
 
     @Test
     void shouldReturnEngineNoMatchWithoutRetryingLegacy() {
-        when(engine.isRetrievalEnabled()).thenReturn(true);
         when(engine.retrieve(anyString(), anyString(), anyInt(), anyInt(), anyDouble(), anyInt()))
                 .thenReturn(List.of());
 
@@ -171,7 +147,7 @@ class RagEngineRoutingIntegrationTest {
 
         assertThat(result.getMessage()).isEqualTo("no knowledge matched");
         assertThat(result.isMatched()).isFalse();
-        verifyNoInteractions(embedding, vectors, reranker);
+        verifyNoInteractions(embedding, vectors);
     }
 
     @Test
@@ -182,12 +158,11 @@ class RagEngineRoutingIntegrationTest {
 
         assertThat(result.getMessage()).isEqualTo("tenant context is missing");
         assertThat(result.getContext()).isEmpty();
-        verifyNoInteractions(engine, embedding, vectors, reranker);
+        verifyNoInteractions(engine, embedding, vectors);
     }
 
     @Test
     void shouldPreserveContextBudgetAndWholeChunkAssemblyContract() {
-        when(engine.isRetrievalEnabled()).thenReturn(true);
         String first = "A".repeat(600);
         String second = "B".repeat(600);
         when(engine.retrieve(anyString(), anyString(), anyInt(), anyInt(), anyDouble(), anyInt()))
@@ -206,7 +181,6 @@ class RagEngineRoutingIntegrationTest {
 
     @Test
     void shouldClampRequestBudgetsBeforeEngineCallAndUseConfiguredDefault() {
-        when(engine.isRetrievalEnabled()).thenReturn(true);
         when(engine.retrieve(anyString(), anyString(), anyInt(), anyInt(), anyDouble(), anyInt()))
                 .thenReturn(List.of());
         properties.setCandidateCount(500);
@@ -272,7 +246,7 @@ class RagEngineRoutingIntegrationTest {
         assertThat(stored.get(0).payload()).containsEntry("document_status", "ACTIVE")
                 .containsEntry("tenant_id", tenant);
         verify(graphs).syncDocument(result.document().documentId());
-        verifyNoInteractions(engine, reranker);
+        verifyNoInteractions(engine);
     }
 
     private boolean matches(StoredVectorPoint point, Map<String, Object> filter) {
@@ -281,7 +255,6 @@ class RagEngineRoutingIntegrationTest {
 
     @Test
     void shouldKeepValidatedActiveVectorsWhenGraphQueueRejectsUpload() {
-        when(graphs.isAsynchronous()).thenReturn(true);
         when(parser.parse(anyString(), anyString(), any(byte[].class))).thenReturn(
                 new ParsedKnowledgeDocument("Synthetic", "fixture.pdf", "pdf", List.of(
                         new KnowledgeChunkDraft("pdf-text", "page-1", "page-1", "Synthetic evidence"))));
