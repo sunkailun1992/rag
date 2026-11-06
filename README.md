@@ -8,7 +8,7 @@
 
 ## Python 引擎演进
 
-本批 Java 版本为 `1.1.4`，同仓独立的 [`engine/`](engine/README.md) 负责解析、检索与可选的语义图谱构建。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入和图谱来源终检；现有 HTTP 和 Dubbo 契约保持。
+本批 Java 版本为 `1.1.5`，同仓独立的 [`engine/`](engine/README.md) 负责解析、检索与可选的语义图谱构建。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入和图谱来源终检；现有 HTTP 和 Dubbo 契约保持。
 
 - 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
 - `rag.engine.retrieval-enabled` 默认 false。开启后使用 Python 检索，失败不叠加旧查询；关闭可恢复 Java 检索。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
@@ -23,6 +23,8 @@
 启用 `rag.engine.graph-enabled` 后，原有 `/api/rag/graphs` 接口通过 Java 门面读取 Neo4j 派生索引。Python 使用 LlamaIndex PropertyGraph 及官方 Neo4j 适配器，Qwen 只用于实体关系抽取；Qdrant 的原文、dense/sparse schema 与嵌入维度保持独立。关闭开关继续使用原 MySQL 文档结构投影。
 
 构建为异步任务：同步接口返回 `buildId/status`，状态接口 `GET /api/rag/graphs/builds/{id}?knowledgeBase=...` 区分排队、运行、完成和失败。上传成功只表示向量写入和校验完成；图谱抽取失败不会撤销活动向量，可在图谱页重试。新图在完整构建和来源重检后才发布，失败时保留之前可用的图。
+
+批量抽取对每个切片执行完整出处校验。局部引用纠正不适用时，在单片最多三个模型请求的预算内重新抽取完整候选；不会把模型拼接出的名称当作原文，也不会靠删除失败切片或空图假成功。具体错误、验收及部署边界见 [批量抽取修复说明](docs/graph-batch-grounding-repair.md)。
 
 语义实体类型为 `ENTITY`，关系为 `RELATED_TO`，实际谓词显示在 `label`。节点及关系分别提供多文档证据，包含文档版本、切片指纹、来源定位和受控摘录；同名实体的跨来源展示仅在当前租户和知识库范围内聚合。实体关系是模型抽取结果，应结合原文核实，不能替代原始文档。前端不连接 Neo4j，也不传租户或模型凭据。
 

@@ -179,7 +179,7 @@ async def test_first_error_does_not_start_fifth_chunk_and_cancels_all_inflight_w
             self.active += 1
             try:
                 await asyncio.sleep(0.003 if text.startswith("0|") else 1)
-                # 字段格式仍允许至多一次完整纠正；不可修正SourceError则只调用一次。
+                # 同一切片最多三次候选请求，失败后不能启动第五个切片。
                 return '[[null,"关系","对象"]]'
             finally:
                 self.active -= 1
@@ -190,7 +190,7 @@ async def test_first_error_does_not_start_fifth_chunk_and_cancels_all_inflight_w
         await extractor(llm, workers=4).acall(nodes)
     await asyncio.sleep(0)
     gc.collect()
-    assert len(llm.counts) == 4 and sum(llm.counts.values()) == 5 and llm.active == 0
+    assert len(llm.counts) == 4 and sum(llm.counts.values()) == 6 and llm.active == 0
     assert not [warning for warning in recwarn if issubclass(warning.category, RuntimeWarning)]
 
 
@@ -249,7 +249,7 @@ def test_strict_schema_objects_are_fresh_and_mapping_never_slices_triplets():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("repair", ["黄色(中度)", "合成量表1~2型"])
-async def test_context_never_accepts_wrong_color_or_joined_name_after_second_attempt(repair):
+async def test_context_never_accepts_wrong_color_or_joined_name_across_retry_budget(repair):
     source = "合成工具A-B提示合成状态；颜色为红色(重度)。"
     context = "合成工具A-B提示合成状态"
     llm = ContextLLM(
@@ -259,9 +259,9 @@ async def test_context_never_accepts_wrong_color_or_joined_name_after_second_att
         expected_context=context,
     )
     node = TextNode(id_="reject-repair", text=source)
-    with pytest.raises(EngineError, match="GRAPH_EXTRACTION_INVALID"):
+    with pytest.raises(EngineError, match="GRAPH_EXTRACTION_UNGROUNDED"):
         await extractor(llm).acall([node])
-    assert llm.calls == 2 and llm.feedbacks[0]["slots"][0]["support"]
+    assert llm.calls == 3 and llm.feedbacks[0]["slots"][0]["support"]
     assert repair not in llm.feedbacks[0]["slots"][0]["choices"]
     assert KG_NODES_KEY not in node.metadata and KG_RELATIONS_KEY not in node.metadata
 
@@ -274,7 +274,7 @@ async def test_context_never_accepts_wrong_color_or_joined_name_after_second_att
         [["不存在主体", "提示", "不存在对象"]],
     ],
 )
-async def test_unsupported_assembled_or_double_bad_endpoints_never_request_regeneration(
+async def test_unsupported_assembled_or_double_bad_endpoints_fail_after_bounded_candidates(
     first, caplog, capsys
 ):
     source = "合成量表1~7型，1~2型提示合成状态；颜色为红色(重度)。"
@@ -288,7 +288,7 @@ async def test_unsupported_assembled_or_double_bad_endpoints_never_request_regen
     with pytest.raises(EngineError, match="GRAPH_EXTRACTION_UNGROUNDED") as caught:
         await extractor(llm).acall([node])
     assert caught.value.reason == "ENTITY_NOT_IN_SOURCE"
-    assert llm.calls == 1 and llm.feedbacks == []
+    assert llm.calls == 3 and llm.feedbacks == []
     assert KG_NODES_KEY not in node.metadata and KG_RELATIONS_KEY not in node.metadata
     captured = capsys.readouterr()
     assert "合成量表" not in caplog.text + captured.out + captured.err
