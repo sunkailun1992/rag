@@ -97,6 +97,10 @@ class GraphRepository:
             "CREATE INDEX rag_graph_entity_scope IF NOT EXISTS FOR (n:__Entity__) "
             "ON (n.tenant_id,n.knowledge_base,n.generation)"
         )
+        await self.rows(
+            "CREATE INDEX rag_graph_entity_canonical IF NOT EXISTS FOR (n:__Entity__) "
+            "ON (n.tenant_id,n.knowledge_base,n.canonical_name)"
+        )
         lease = await self.rows(
             "MERGE (r:RagGraphRuntime {key:'worker'}) SET r.lock=coalesce(r.lock,0)+1 "
             "WITH r WHERE coalesce(r.leaseUntil,0)<timestamp() OR r.owner=$owner "

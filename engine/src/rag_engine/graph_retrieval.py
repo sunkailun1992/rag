@@ -25,8 +25,13 @@ MATCH (c:Chunk {tenant_id:$tenant,knowledge_base:$kb,generation:d.activeGenerati
 WHERE s.tenant_id=$tenant AND s.knowledge_base=$kb AND s.generation=d.activeGeneration
   AND s.point_id=a.pointId AND s.source_key=a.sourceKey AND s.document_id=a.documentId
 WITH DISTINCT s.canonical_name AS canonical ORDER BY canonical LIMIT 40
-MATCH (t:__Entity__ {tenant_id:$tenant,knowledge_base:$kb,canonical_name:canonical})
-      <-[:MENTIONS]-(candidate:Chunk {tenant_id:$tenant,knowledge_base:$kb})
+CALL (canonical) {
+  MATCH (t:__Entity__ {tenant_id:$tenant,knowledge_base:$kb,canonical_name:canonical})
+  USING INDEX SEEK t:__Entity__(tenant_id,knowledge_base,canonical_name)
+  RETURN t
+}
+WITH DISTINCT t
+MATCH (t)<-[:MENTIONS]-(candidate:Chunk {tenant_id:$tenant,knowledge_base:$kb})
 MATCH (target:RagGraphDocument {tenant:$tenant,knowledgeBase:$kb,
                                documentId:candidate.document_id,activeGeneration:candidate.generation})
 WHERE t.generation=target.activeGeneration AND candidate.generation=target.activeGeneration
