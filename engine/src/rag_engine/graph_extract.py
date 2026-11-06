@@ -664,7 +664,7 @@ def graph_store(settings: Settings) -> ControlledNeo4jPropertyGraphStore:
         database=settings.neo4j_database,
         refresh_schema=False,
         create_indexes=False,
-        timeout=settings.graph_query_timeout_seconds,
+        timeout=settings.graph_storage_timeout_seconds,
         connection_timeout=3,
         connection_acquisition_timeout=3,
         max_connection_pool_size=2,

@@ -48,7 +48,11 @@ def worker_main(monkeypatch, capsys, error):
     graph_worker.main()
     result = capsys.readouterr()
     assert result.err == "" and PRIVATE_MARKER not in result.out
-    return json.loads(result.out)
+    diagnostic = json.loads(result.out)
+    details = diagnostic.pop("diagnostic", None)
+    if details is not None:
+        assert graph_worker.sanitize_worker_diagnostic(details) == details
+    return diagnostic
 
 
 @pytest.mark.parametrize("code", ["GRAPH_EXTRACTION_INVALID", "GRAPH_SOURCE_CHANGED", *sorted(MODEL_CODES)])

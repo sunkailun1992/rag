@@ -20,29 +20,48 @@ from rag_engine.graph_models import ActiveGraphSource, GraphBuildRequest
 from rag_engine.graph_query import aggregate_graph
 from rag_engine.graph_repository import GraphRepository
 from rag_engine.graph_sources import evidence_excerpt, read_active_sources
+from rag_engine.graph_worker import safe_worker_diagnostic, sanitize_worker_diagnostic
 
 logger = logging.getLogger("rag_engine.graph")
 
 
 async def run_worker(payload, settings, remaining: float):
-    config = settings.model_dump(mode="json")
-    for name in ["api_key", "qdrant_api_key", "qwen_api_key", "neo4j_password", "ocr_api_key"]:
-        config[name] = getattr(settings, name).get_secret_value()
-    raw = json.dumps({**payload, "settings": config}, ensure_ascii=False).encode()
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "rag_engine.graph_worker",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-        env={**os.environ, "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"},
-    )
+    process = None
+    stage = "ENCODE_INPUT"
     try:
+        config = settings.model_dump(mode="json")
+        for name in ["api_key", "qdrant_api_key", "qwen_api_key", "neo4j_password", "ocr_api_key"]:
+            config[name] = getattr(settings, name).get_secret_value()
+        raw = json.dumps({**payload, "settings": config}, ensure_ascii=False).encode()
+        stage = "SPAWN"
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "rag_engine.graph_worker",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env={**os.environ, "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"},
+        )
+        stage = "COMMUNICATE"
         async with asyncio.timeout(remaining):
             stdout, _ = await process.communicate(raw)
-        if process.returncode != 0 or len(stdout) > 65536:
+        stdout_bytes = len(stdout) if type(stdout) is bytes else 0
+        if process.returncode != 0 or type(stdout) is not bytes or stdout_bytes > 65536:
+            returncode = process.returncode
+            safe_returncode = (
+                returncode if type(returncode) is int and abs(returncode) <= 2_147_483_647 else None
+            )
+            signal = -safe_returncode if safe_returncode is not None and -128 <= safe_returncode < 0 else 0
+            logger.warning(
+                "rag_graph_worker_process_failed stage=%s returncode=%s signal=%s stdout_bytes=%s",
+                stage,
+                safe_returncode,
+                signal,
+                stdout_bytes,
+            )
             raise EngineError("GRAPH_BUILD_FAILED")
+        stage = "DECODE_OUTPUT"
         result = json.loads(stdout)
         if not isinstance(result, dict):
             raise EngineError("GRAPH_BUILD_FAILED")
@@ -54,7 +73,8 @@ async def run_worker(payload, settings, remaining: float):
                 "GRAPH_EXTRACTION_LIMIT",
             }
             allowed = (
-                extraction_codes
+                {"GRAPH_BUILD_FAILED"}
+                | extraction_codes
                 | GRAPH_MODEL_CODES
                 | {
                     "GRAPH_SOURCE_CHANGED",
@@ -65,6 +85,11 @@ async def run_worker(payload, settings, remaining: float):
             )
             if type(code) is not str or code not in allowed:
                 raise EngineError("GRAPH_BUILD_FAILED")
+            diagnostic = sanitize_worker_diagnostic(result.get("diagnostic"))
+            if diagnostic is not None:
+                logger.warning(
+                    "rag_graph_worker_diagnostic data=%s", json.dumps(diagnostic, separators=(",", ":"))
+                )
             reason = result.get("reason")
             model_reason = (
                 code in GRAPH_MODEL_CODES
@@ -87,6 +112,7 @@ async def run_worker(payload, settings, remaining: float):
             elif code in GRAPH_MODEL_CODES:
                 logger.warning("rag_graph_model_failed code=%s", code)
             raise EngineError(code)
+        stage = "VALIDATE_RESULT"
         counts = result["result"]
         if (
             not isinstance(counts, dict)
@@ -96,13 +122,44 @@ async def run_worker(payload, settings, remaining: float):
             raise EngineError("GRAPH_BUILD_FAILED")
         return counts
     except TimeoutError as error:
+        logger.warning(
+            "rag_graph_parent_failed data=%s",
+            json.dumps(safe_worker_diagnostic(error, stage), separators=(",", ":")),
+        )
         raise EngineError("GRAPH_BUILD_TIMEOUT", 504) from error
-    except (ValueError, KeyError, TypeError) as error:
+    except EngineError:
+        raise
+    except Exception as error:
+        logger.warning(
+            "rag_graph_parent_failed data=%s",
+            json.dumps(safe_worker_diagnostic(error, stage), separators=(",", ":")),
+        )
         raise EngineError("GRAPH_BUILD_FAILED") from error
     finally:
-        if process.returncode is None:
-            process.kill()
-            await process.wait()
+        primary = sys.exception()
+        if process is not None and process.returncode is None:
+            cleanup_failed = False
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            except BaseException as error:
+                cleanup_failed = True
+                logger.warning(
+                    "rag_graph_parent_cleanup_failed data=%s",
+                    json.dumps(safe_worker_diagnostic(error, "PROCESS_CLEANUP"), separators=(",", ":")),
+                )
+            try:
+                async with asyncio.timeout(3):
+                    await process.wait()
+            except BaseException as error:
+                cleanup_failed = True
+                logger.warning(
+                    "rag_graph_parent_cleanup_failed data=%s",
+                    json.dumps(safe_worker_diagnostic(error, "PROCESS_CLEANUP"), separators=(",", ":")),
+                )
+            if primary is None and cleanup_failed:
+                raise EngineError("GRAPH_BUILD_FAILED")
 
 
 class GraphManager:
@@ -146,6 +203,7 @@ class GraphManager:
                     await asyncio.sleep(0.5)
                     continue
                 job = claimed["job"]
+                stage = "WORKER_RUN"
                 try:
                     async with asyncio.timeout(claimed["remaining"]):
                         counts = await run_worker(
@@ -157,6 +215,7 @@ class GraphManager:
                             self.settings,
                             claimed["remaining"],
                         )
+                        stage = "SOURCE_RECHECK"
                         request = GraphBuildRequest.model_validate_json(job["requestJson"])
                         await read_active_sources(
                             request.activeSources,
@@ -165,12 +224,18 @@ class GraphManager:
                             self.settings,
                             self.client,
                         )
+                        stage = "PUBLISH"
                         await self.repository.publish(job, counts)
                 except asyncio.CancelledError:
                     with contextlib.suppress(Exception):
                         await self.repository.finish_failed(job, "GRAPH_WORKER_STOPPED", cancelled=True)
                     raise
                 except Exception as error:
+                    if not isinstance(error, EngineError):
+                        logger.warning(
+                            "rag_graph_parent_stage_failed data=%s",
+                            json.dumps(safe_worker_diagnostic(error, stage), separators=(",", ":")),
+                        )
                     code = (
                         error.code
                         if isinstance(error, EngineError)

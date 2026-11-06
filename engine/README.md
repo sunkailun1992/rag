@@ -153,3 +153,5 @@ NAS 宿主端口由 `RAG_ENGINE_HOST_PORT` 设置，默认 `18091`，避开已�
 ## Neo4j 事务风险集成测试
 
 `tests/test_graph_neo4j_live.py` 默认跳过，仅显式提供四个 `RAG_ENGINE_NEO4J_LIVE_{URL,USERNAME,PASSWORD,DATABASE}` 后连接。运行前须停止图 worker 并确认没有待处理任务；测试拒绝抢占有效租约，不认领既有任务，清理仅限自建随机 tenant/KB。使用 `uv run --frozen pytest -q tests/test_graph_neo4j_live.py` 验证真实提交顺序、全库/增量交错、删除票据、重传和租约；不把 repository 层控制测试当作模型或 Qdrant 真实性验收。
+
+图谱批量存储使用 `RAG_ENGINE_GRAPH_STORAGE_TIMEOUT_SECONDS`（默认30秒、范围1–60）限制构建子进程的单个 Neo4j 事务，避免大批量写库共用交互查询的三秒预算。该参数不改变查询、提交或总构建deadline，也不改变1CPU／1.5GiB容器上限。内部失败诊断只输出固定阶段、异常类别及受限代码栈，不输出正文、异常原文或凭据；清理错误不覆盖构建主异常。

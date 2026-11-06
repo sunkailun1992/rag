@@ -31,6 +31,188 @@ WORKER_ERRORS = EXTRACTION_ERRORS | {
 }
 
 
+WORKER_STAGES = frozenset(
+    {
+        "INPUT",
+        "CONFIGURE",
+        "SOURCE_READ",
+        "PREPARE_NODES",
+        "STORE_OPEN",
+        "INDEX_BUILD",
+        "READBACK",
+        "SOURCE_RECHECK",
+        "STORE_CLOSE",
+        "CLIENT_CLOSE",
+        "ENCODE_INPUT",
+        "SPAWN",
+        "COMMUNICATE",
+        "DECODE_OUTPUT",
+        "VALIDATE_RESULT",
+        "PROCESS_CLEANUP",
+        "WORKER_RUN",
+        "PUBLISH",
+    }
+)
+_FRAME_FUNCTIONS = {
+    "graph_worker.py": frozenset({"main", "build", "read_sources", "_aextract"}),
+    "graph_jobs.py": frozenset({"run_worker", "pump"}),
+    "graph_repository.py": frozenset({"rows", "publish", "transaction"}),
+    "graph_extract.py": frozenset(
+        {
+            "acall",
+            "_aextract",
+            "acomplete",
+            "__call__",
+            "graph_store",
+            "upsert_nodes",
+            "upsert_relations",
+            "get_schema",
+            "parse_triplets",
+            "validate_extracted_paths",
+        }
+    ),
+    "graph_sources.py": frozenset({"read_active_sources", "content_fingerprint"}),
+    "http.py": frozenset({"post_json", "request_json"}),
+}
+_FRAME_MODULES = frozenset({"rag_engine." + name.removesuffix(".py") for name in _FRAME_FUNCTIONS})
+_EXCEPTION_BUCKETS = frozenset(
+    {
+        "BUILTIN_RUNTIME",
+        "BUILTIN_VALUE",
+        "BUILTIN_TYPE",
+        "BUILTIN_KEY",
+        "BUILTIN_MEMORY",
+        "BUILTIN_TIMEOUT",
+        "BUILTIN_OS",
+        "NEO4J_CLIENT",
+        "NEO4J_DATABASE",
+        "NEO4J_TRANSIENT",
+        "NEO4J_UNAVAILABLE",
+        "NEO4J_SESSION",
+        "NEO4J_RESULT",
+        "HTTP_TIMEOUT",
+        "HTTP_NETWORK",
+        "HTTP_PROTOCOL",
+        "ENGINE",
+        "OTHER",
+    }
+)
+_WORKER_STAGE = "INPUT"
+
+
+def _set_worker_stage(stage):
+    global _WORKER_STAGE
+    if stage in WORKER_STAGES:
+        _WORKER_STAGE = stage
+
+
+def safe_worker_diagnostic(error, stage):
+    """仅固定阶段、真实异常类型桶与受控代码栈；不读异常文本、参数或局部变量。"""
+    from neo4j import exceptions as neo4j_errors
+
+    buckets = {
+        json.JSONDecodeError: "BUILTIN_VALUE",
+        RuntimeError: "BUILTIN_RUNTIME",
+        ValueError: "BUILTIN_VALUE",
+        TypeError: "BUILTIN_TYPE",
+        KeyError: "BUILTIN_KEY",
+        MemoryError: "BUILTIN_MEMORY",
+        TimeoutError: "BUILTIN_TIMEOUT",
+        OSError: "BUILTIN_OS",
+        EngineError: "ENGINE",
+        neo4j_errors.ClientError: "NEO4J_CLIENT",
+        neo4j_errors.DatabaseError: "NEO4J_DATABASE",
+        neo4j_errors.TransientError: "NEO4J_TRANSIENT",
+        neo4j_errors.ServiceUnavailable: "NEO4J_UNAVAILABLE",
+        neo4j_errors.SessionExpired: "NEO4J_SESSION",
+        neo4j_errors.ResultError: "NEO4J_RESULT",
+        httpx.TimeoutException: "HTTP_TIMEOUT",
+        httpx.ConnectTimeout: "HTTP_TIMEOUT",
+        httpx.ReadTimeout: "HTTP_TIMEOUT",
+        httpx.WriteTimeout: "HTTP_TIMEOUT",
+        httpx.PoolTimeout: "HTTP_TIMEOUT",
+        httpx.NetworkError: "HTTP_NETWORK",
+        httpx.ConnectError: "HTTP_NETWORK",
+        httpx.ReadError: "HTTP_NETWORK",
+        httpx.WriteError: "HTTP_NETWORK",
+        httpx.CloseError: "HTTP_NETWORK",
+        httpx.ProtocolError: "HTTP_PROTOCOL",
+        httpx.RemoteProtocolError: "HTTP_PROTOCOL",
+        httpx.LocalProtocolError: "HTTP_PROTOCOL",
+    }
+    frames = []
+    trace = BaseException.__traceback__.__get__(error)
+    for _ in range(128):
+        if trace is None:
+            break
+        code = trace.tb_frame.f_code
+        module = trace.tb_frame.f_globals.get("__name__")
+        filename = code.co_filename.rsplit("/", 1)[-1]
+        function = code.co_name
+        if (
+            type(module) is str
+            and (
+                (module in _FRAME_MODULES and filename == module.rsplit(".", 1)[-1] + ".py")
+                or (module == "__main__" and filename == "graph_worker.py")
+            )
+            and function in _FRAME_FUNCTIONS.get(filename, ())
+            and type(trace.tb_lineno) is int
+            and 0 < trace.tb_lineno <= 1_000_000
+        ):
+            frames.append({"file": filename, "function": function, "line": trace.tb_lineno})
+        trace = trace.tb_next
+    bucket = buckets.get(type(error), "OTHER")
+    if bucket == "OTHER":
+        for family, family_bucket in (
+            (neo4j_errors.ClientError, "NEO4J_CLIENT"),
+            (neo4j_errors.DatabaseError, "NEO4J_DATABASE"),
+            (neo4j_errors.TransientError, "NEO4J_TRANSIENT"),
+            (neo4j_errors.ServiceUnavailable, "NEO4J_UNAVAILABLE"),
+            (neo4j_errors.SessionExpired, "NEO4J_SESSION"),
+            (neo4j_errors.ResultError, "NEO4J_RESULT"),
+        ):
+            if isinstance(error, family):
+                bucket = family_bucket
+                break
+    return {
+        "stage": stage if type(stage) is str and stage in WORKER_STAGES else "INPUT",
+        "exception": bucket,
+        "frames": frames[-8:],
+    }
+
+
+def sanitize_worker_diagnostic(value):
+    """子进程同样不受日志信任；只接收固定枚举及有限代码位置。"""
+    if not isinstance(value, dict):
+        return None
+    stage, bucket, frames = value.get("stage"), value.get("exception"), value.get("frames")
+    if (
+        type(stage) is not str
+        or stage not in WORKER_STAGES
+        or type(bucket) is not str
+        or bucket not in _EXCEPTION_BUCKETS
+        or not isinstance(frames, list)
+        or len(frames) > 8
+    ):
+        return None
+    clean = []
+    for frame in frames:
+        if not isinstance(frame, dict):
+            return None
+        filename, function, line = frame.get("file"), frame.get("function"), frame.get("line")
+        if (
+            type(filename) is not str
+            or filename not in _FRAME_FUNCTIONS
+            or type(function) is not str
+            or function not in _FRAME_FUNCTIONS[filename]
+            or type(line) is not int
+            or not 0 < line <= 1_000_000
+        ):
+            return None
+        clean.append({"file": filename, "function": function, "line": line})
+    return {"stage": stage, "exception": bucket, "frames": clean}
+
+
 def with_source_diagnostics(extractor_type):
     """只把应用生成的来源node哈希附到失败对象，不读取正文或模型字段。"""
 
@@ -84,6 +266,7 @@ def build(payload: dict) -> dict:
         parse_triplets,
     )
 
+    _set_worker_stage("CONFIGURE")
     settings = Settings(**payload["settings"])
     request = GraphBuildRequest.model_validate(payload["request"])
     tenant, generation = payload["tenant"], payload["buildId"]
@@ -94,7 +277,9 @@ def build(payload: dict) -> dict:
                 request.activeSources, tenant, request.knowledgeBase, settings, client
             )
 
+    _set_worker_stage("SOURCE_READ")
     verified = asyncio.run(read_sources())
+    _set_worker_stage("PREPARE_NODES")
     nodes, sources = [], {}
     for source in verified:
         node = source_text_node(source, tenant, request.knowledgeBase, generation)
@@ -114,6 +299,7 @@ def build(payload: dict) -> dict:
         follow_redirects=False,
         limits=httpx.Limits(max_connections=settings.graph_extraction_workers, max_keepalive_connections=0),
     )
+    _set_worker_stage("STORE_OPEN")
     store = graph_store(settings)
     try:
         llm = QwenGraphLLM(settings=settings, client=client)
@@ -125,6 +311,7 @@ def build(payload: dict) -> dict:
             num_workers=settings.graph_extraction_workers,
             raise_on_error=True,
         )
+        _set_worker_stage("INDEX_BUILD")
         PropertyGraphIndex(
             nodes=nodes,
             llm=llm,
@@ -134,6 +321,7 @@ def build(payload: dict) -> dict:
             use_async=True,
         )
         # 不以索引构造返回代替持久化读回；空关系文档仍必须存在完整来源 chunk。
+        _set_worker_stage("READBACK")
         rows = store.structured_query(
             "MATCH (c:Chunk {tenant_id:$tenant,knowledge_base:$kb,generation:$generation}) "
             "RETURN c.point_id AS point,c.source_key AS sourceKey,c.document_id AS documentId,"
@@ -168,6 +356,7 @@ def build(payload: dict) -> dict:
         )
         if counts[0]["count"] != transform.node_count or edges[0]["count"] != transform.edge_count:
             raise EngineError("GRAPH_READBACK_FAILED")
+        _set_worker_stage("SOURCE_RECHECK")
         asyncio.run(read_sources())
         return {
             "processedDocumentCount": len({value.documentId for value in request.activeSources}),
@@ -175,8 +364,22 @@ def build(payload: dict) -> dict:
             "edgeCount": edges[0]["count"],
         }
     finally:
-        store.close()
-        asyncio.run(client.aclose())
+        primary, primary_stage = sys.exception(), _WORKER_STAGE
+        cleanup_error = None
+        cleanup_stage = None
+        for stage, close in (
+            ("STORE_CLOSE", store.close),
+            ("CLIENT_CLOSE", lambda: asyncio.run(client.aclose())),
+        ):
+            _set_worker_stage(stage)
+            try:
+                close()
+            except BaseException as error:
+                if cleanup_error is None:
+                    cleanup_error, cleanup_stage = error, stage
+        _set_worker_stage(primary_stage if primary is not None else cleanup_stage or primary_stage)
+        if primary is None and cleanup_error is not None:
+            raise cleanup_error
 
 
 def main():
@@ -185,6 +388,7 @@ def main():
 
     resource.setrlimit(resource.RLIMIT_CPU, (180, 181))
     logging.disable(logging.CRITICAL)
+    _set_worker_stage("INPUT")
     try:
         raw = sys.stdin.buffer.read(9 * 1024 * 1024 + 1)
         if len(raw) > 9 * 1024 * 1024:
@@ -199,6 +403,8 @@ def main():
             known = isinstance(error, EngineError) and type(code) is str and code in WORKER_ERRORS
         code = code if known else "GRAPH_BUILD_FAILED"
         diagnostic = {"error": code}
+        if code == "GRAPH_BUILD_FAILED":
+            diagnostic["diagnostic"] = safe_worker_diagnostic(error, _WORKER_STAGE)
         reason = getattr(error, "reason", None)
         model_reason = (
             code in GRAPH_MODEL_CODES

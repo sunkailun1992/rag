@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     graph_queue_size: int = Field(default=2, ge=1, le=8)
     graph_build_timeout_seconds: float = Field(default=300, ge=1, le=1800)
     graph_query_timeout_seconds: float = Field(default=3, ge=0.1, le=10)
+    # 批量派生图每次存储事务预算；交互查询与发布预算仍由graph_query_timeout_seconds控制。
+    graph_storage_timeout_seconds: float = Field(default=30, ge=1, le=60, allow_inf_nan=False)
     graph_llm_timeout_seconds: float = Field(default=20, ge=0.1, le=60)
     graph_max_triplets_per_chunk: int = Field(default=12, ge=1, le=32)
     graph_max_edges: int = Field(default=2000, ge=1, le=4000)
