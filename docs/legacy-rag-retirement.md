@@ -4,6 +4,8 @@
 
 删除项：旧 Java 向量查询与 qwen rerank、RerankClient/RerankResult，MySQL 图谱 Store、Projector、节点/边 Entity/Mapper、五个旧投影模型、自动 MysqlDdl 入口及仅覆盖旧实现的测试。`rag.engine.retrieval-enabled` 和 `rag.engine.graph-enabled` 不再绑定，旧配置不会恢复旧后端。Engine 错误只走现有失败降级，不追加另一条查询而突破预算。
 
+已删除仓库根目录无效的 `Dockerfile`：该继承模板仍使用 JRE 8、复制 `report-1.0.2.jar`，并依赖来源未明的 entrypoint；当前 README、脚本和 CI 不使用它。Java 门面继续通过 `./gradlew bootRun` 或 `./gradlew bootJar` 后运行可执行 JAR；Engine 与 OCR 各自使用 `engine/Dockerfile`、`engine/ocr/Dockerfile`，现有容器构建入口不变。本次不替换 Java 基础镜像，不推定已有 Java 容器部署。
+
 保留项：XLSX/DOCX 的 POI 结构化解析仍由当前上传路径使用；PDF/图片 Engine 解析开关仍是安全停用入口；Java document embedding、dense/sparse 写入、Qdrant scroll/count/readback、文档版本/幂等/活动状态、原文和来源metadata全部仍在用。图谱前后来源身份终检、revision、删除屏障与票据补偿、内部Bearer和可信租户头均保留。节点/边 VO、枚举属于当前公开图协议，继续保留。
 
 | 对象 | 影响 | 本批行为 |
