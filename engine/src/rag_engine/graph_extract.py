@@ -50,6 +50,14 @@ Synthetic example: in '工具甲覆盖1~7类，1~2类对应状态乙', '1~2类' 
 '工具甲1~2类' is assembled and must not be produced.
 Do not join separate fields, translate, paraphrase, remove punctuation or replace words with synonyms.
 Do not truncate a name into a different meaning. Use short predicates grounded in the source.
+Represent explicitly stated actions, requirements and states as complete relationships too.
+When a source gives a subject followed by an action with no separate object, the verbatim
+ACTION PHRASE is objectQuote; predicate is a short semantic relation label such as requires,
+performs, or has state. Preserve negation, modality, qualifiers and ranges in the action quote.
+Never put the entire action in predicate and leave objectQuote empty. Do not invent a new object
+or infer unstated facts.
+Synthetic example: source '工位甲暂停作业' can yield 工位甲 -> 执行状态 -> 暂停作业.
+Copy the complete action phrase as one source quote, not just a qualifier or inferred noun.
 Missing, blank, unknown or unstated values do NOT form a relationship. Never invent a value for them.
 Extract fewer relationships when appropriate.
 Return empty triples only when no complete relationships are stated.
@@ -526,7 +534,7 @@ class ScopedGraphTransform(TransformComponent):
                 "document_version": identity.documentVersion,
                 "document_revision": identity.documentRevision,
                 "source_key": source_key(identity),
-                "extractor_version": "llama-json-schema-v5",
+                "extractor_version": "llama-json-schema-v6",
                 "extraction_method": "LLM_EXTRACTED",
                 "extraction_model": self.extraction_model,
             }

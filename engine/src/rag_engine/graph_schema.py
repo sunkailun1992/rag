@@ -21,7 +21,12 @@ class GraphTripletOutput(BaseModel):
     predicate: str = Field(
         min_length=1,
         max_length=160,
-        description="A short factual relationship explicitly stated in the original source.",
+        description=(
+            "A short semantic relation label grounded in an explicit source fact. "
+            "For a subject performing an action without a separate object, use a label such as "
+            "performs, requires, or has state; copy the complete action into objectQuote, preserving "
+            "negation, modality, qualifiers and ranges. Never leave objectQuote empty."
+        ),
     )
     objectQuote: str = Field(min_length=1, max_length=160, description=QUOTE_DESCRIPTION)
 
