@@ -107,7 +107,7 @@ uv run --frozen pytest -q
 
 ## LlamaIndex 与 Neo4j 派生图谱
 
-`RAG_ENGINE_GRAPH_ENABLED=false` 为默认状态，关闭时图接口明确返回 `GRAPH_NOT_CONFIGURED`，原解析/检索保持可用。Java 图开关另行控制路由，不能仅凭依赖已安装称已启用。新增直接依赖 `llama-index-graph-stores-neo4j==0.8.0` 与现有 core `0.14.25` 配套；要求 Neo4j 服务端至少 5.23（集成使用 `CALL (variables) {}`），部署建议已核验的 5.26 LTS 与对应 APOC。模型仍走配置的千问 compatible `/chat/completions`，使用 LlamaIndex `CustomLLM` 和原 bounded HTTP，无默认 OpenAI 凭据、embedding 或模型下载。
+`RAG_ENGINE_GRAPH_ENABLED=false` 为默认状态，关闭时图接口明确返回 `GRAPH_NOT_CONFIGURED`，原解析/检索保持可用。Java 图接口固定依赖 Engine/Neo4j；Python `RAG_ENGINE_GRAPH_ENABLED` 关闭时返回明确不可用，不能仅凭依赖已安装称已启用。新增直接依赖 `llama-index-graph-stores-neo4j==0.8.0` 与现有 core `0.14.25` 配套；要求 Neo4j 服务端至少 5.23（集成使用 `CALL (variables) {}`），部署建议已核验的 5.26 LTS 与对应 APOC。模型仍走配置的千问 compatible `/chat/completions`，使用 LlamaIndex `CustomLLM` 和原 bounded HTTP，无默认 OpenAI 凭据、embedding 或模型下载。
 
 内部接口均要求 Service Bearer 与可信 `X-Tenant-Id`，JSON 不接受 tenant。`POST /v1/graphs/builds` 接收 `knowledgeBase/activeSources/reconcile`；`POST /v1/graphs/queries` 另接收 `searchText/nodeType/viewMode/limit`；`POST /v1/graphs/deactivations` 接收 `documentId/documentRevision`，返回删除屏障票据；`GET /v1/graphs/builds/{buildId}?knowledgeBase=...` 按 tenant+KB 查询任务状态。请求最多 8 MiB、10000 个来源身份、正文总量12000000字符，超限整次拒绝；每个身份包含 `pointId/documentId/documentCode/documentVersion/documentRevision/chunkId/contentSha256`。来源按64点批量从现有 Qdrant 回读，逐项检查身份、ACTIVE、正文与 Java 语义去重 SHA256，不接受客户端正文、文件路径或远程模型地址。Qdrant dense/sparse schema、向量、模型和维度不因图谱构建改变。
 
