@@ -9,7 +9,13 @@ import re
 import sys
 import uuid
 
-from rag_engine.errors import VALIDATION_REASONS, EngineError
+from rag_engine.errors import (
+    GRAPH_MODEL_CODES,
+    GRAPH_MODEL_REASONS,
+    VALIDATION_REASONS,
+    EngineError,
+    GraphModelError,
+)
 from rag_engine.graph_models import ActiveGraphSource, GraphBuildRequest
 from rag_engine.graph_query import aggregate_graph
 from rag_engine.graph_repository import GraphRepository
@@ -38,41 +44,54 @@ async def run_worker(payload, settings, remaining: float):
         if process.returncode != 0 or len(stdout) > 65536:
             raise EngineError("GRAPH_BUILD_FAILED")
         result = json.loads(stdout)
+        if not isinstance(result, dict):
+            raise EngineError("GRAPH_BUILD_FAILED")
         if "error" in result:
             code = result["error"]
-            reason = result.get("reason")
-            if type(reason) is str and reason in VALIDATION_REASONS:
-                source_hash = result.get("sourceHash")
-                if (
-                    type(code) is str
-                    and code
-                    in {"GRAPH_EXTRACTION_INVALID", "GRAPH_EXTRACTION_UNGROUNDED", "GRAPH_EXTRACTION_LIMIT"}
-                    and type(source_hash) is str
-                    and re.fullmatch(r"[0-9a-f]{64}", source_hash)
-                ):
-                    logger.warning(
-                        "rag_graph_validation_failed reason=%s source_hash=%s", reason, source_hash
-                    )
-                else:
-                    logger.warning("rag_graph_validation_failed reason=%s", reason)
-            raise EngineError(
-                code
-                if type(code) is str
-                and code
-                in {
-                    "GRAPH_EXTRACTION_INVALID",
-                    "GRAPH_EXTRACTION_UNGROUNDED",
-                    "GRAPH_EXTRACTION_LIMIT",
+            extraction_codes = {
+                "GRAPH_EXTRACTION_INVALID",
+                "GRAPH_EXTRACTION_UNGROUNDED",
+                "GRAPH_EXTRACTION_LIMIT",
+            }
+            allowed = (
+                extraction_codes
+                | GRAPH_MODEL_CODES
+                | {
                     "GRAPH_SOURCE_CHANGED",
                     "GRAPH_CONTENT_LIMIT",
                     "GRAPH_READBACK_FAILED",
                     "GRAPH_NOT_CONFIGURED",
                 }
-                else "GRAPH_BUILD_FAILED"
             )
+            if type(code) is not str or code not in allowed:
+                raise EngineError("GRAPH_BUILD_FAILED")
+            reason = result.get("reason")
+            model_reason = (
+                code in GRAPH_MODEL_CODES
+                and type(reason) is str
+                and reason in GRAPH_MODEL_REASONS
+                and GraphModelError(reason).code == code
+            )
+            extraction_reason = (
+                code in extraction_codes
+                and type(reason) is str
+                and reason in VALIDATION_REASONS - GRAPH_MODEL_REASONS
+            )
+            if model_reason or extraction_reason:
+                source_hash = result.get("sourceHash")
+                event = "rag_graph_model_failed" if model_reason else "rag_graph_validation_failed"
+                if type(source_hash) is str and re.fullmatch(r"[0-9a-f]{64}", source_hash):
+                    logger.warning("%s code=%s reason=%s source_hash=%s", event, code, reason, source_hash)
+                else:
+                    logger.warning("%s code=%s reason=%s", event, code, reason)
+            elif code in GRAPH_MODEL_CODES:
+                logger.warning("rag_graph_model_failed code=%s", code)
+            raise EngineError(code)
         counts = result["result"]
-        if set(counts) != {"processedDocumentCount", "nodeCount", "edgeCount"} or any(
-            type(value) is not int or value < 0 for value in counts.values()
+        if (
+            not isinstance(counts, dict)
+            or set(counts) != {"processedDocumentCount", "nodeCount", "edgeCount"}
+            or any(type(value) is not int or value < 0 for value in counts.values())
         ):
             raise EngineError("GRAPH_BUILD_FAILED")
         return counts

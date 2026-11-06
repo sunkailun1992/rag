@@ -22,6 +22,8 @@ Neo4j路径的Java快照使用Qdrant payload selector，仅读取tenant/KB/ACTIV
 
 每个任务有独立 staging generation；LlamaIndex 提取器之后强制作用域变换，实体出现的存储 ID 包含 tenant、KB、generation 和 pointId。同名实体按授权范围内 canonical name 聚合展示，边按主体、谓词、客体聚合并保留各自来源。禁止默认全局 name MERGE，禁止任意模型 Cypher。每条关系附有来自原切片的证据；模型原文、额外属性及控制字段不得未经校验入库。
 
+模型请求的短暂传输故障不能被误当作源码异常或实体错误。Qwen适配边界仅把已知传输/上游状态转为固定模型错误类型；超时、明确临时网络、429与500/502/503/504可重发，网络、slot和完整重抽合计最多三个请求。传输重试保留当前官方extractor、完整prompt和局部schema，不修改语义反馈；取消、父deadline、鉴权、证书、URL/协议、非法或超大响应不重试。worker与parent只接受类型和固定码/reason/hash配对，不根据任意异常文本生成诊断，也不返回上游正文或地址。
+
 构建使用一个可终止子进程，默认单并发、有界待处理队列、独立总预算；不占用现有三秒检索预算。先完整写入、来源读回核对，再原子激活。发布比较文档 revision，并受删除 tombstone、任务 deadline 和活动来源重检约束；迟到旧任务不可覆盖新版本或复活删除文档。失败 staging 不可查询，可安全清理。
 
 ## 内部契约（统一 camelCase）

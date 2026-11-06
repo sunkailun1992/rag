@@ -34,7 +34,10 @@ async def request_json(
     options = {} if timeout is None else {"timeout": timeout}
     async with client.stream(method, url, json=body, headers=headers, **options) as response:
         if not 200 <= response.status_code < 300:
-            raise EngineError("UPSTREAM_REJECTED")
+            error = EngineError("UPSTREAM_REJECTED")
+            # 仅保留可信HTTP整数供调用方分类，原有对外code/status保持不变。
+            error.upstream_status = response.status_code
+            raise error
         buffer = bytearray()
         async for block in response.aiter_bytes():
             buffer.extend(block)

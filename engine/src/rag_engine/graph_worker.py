@@ -9,13 +9,26 @@ import sys
 import httpx
 
 from rag_engine.config import Settings
-from rag_engine.errors import VALIDATION_REASONS, EngineError
+from rag_engine.errors import (
+    GRAPH_MODEL_CODES,
+    GRAPH_MODEL_REASONS,
+    VALIDATION_REASONS,
+    EngineError,
+    GraphModelError,
+)
 from rag_engine.graph_models import GraphBuildRequest
 from rag_engine.graph_sources import digest, read_active_sources, source_key
 
 EXTRACTION_ERRORS = frozenset(
     {"GRAPH_EXTRACTION_INVALID", "GRAPH_EXTRACTION_UNGROUNDED", "GRAPH_EXTRACTION_LIMIT"}
 )
+WORKER_ERRORS = EXTRACTION_ERRORS | {
+    "GRAPH_SOURCE_CHANGED",
+    "GRAPH_CONTENT_LIMIT",
+    "GRAPH_READBACK_FAILED",
+    "GRAPH_NOT_CONFIGURED",
+    "GRAPH_REQUEST_TOO_LARGE",
+}
 
 
 def with_source_diagnostics(extractor_type):
@@ -31,7 +44,15 @@ def with_source_diagnostics(extractor_type):
                 if hasattr(error, "source_fingerprint"):
                     del error.source_fingerprint
                 code = getattr(error, "code", None)
-                if type(code) is str and code in EXTRACTION_ERRORS and type(node_id) is str:
+                trusted_model = (
+                    isinstance(error, GraphModelError) and code in GRAPH_MODEL_CODES
+                    if type(code) is str
+                    else False
+                )
+                trusted_extraction = (
+                    not isinstance(error, GraphModelError) and type(code) is str and code in EXTRACTION_ERRORS
+                )
+                if (trusted_model or trusted_extraction) and type(node_id) is str:
                     match = re.fullmatch(r"c-([0-9a-f]{64})", node_id)
                     if match:
                         error.source_fingerprint = match.group(1)
@@ -171,28 +192,29 @@ def main():
         result = build(json.loads(raw))
         print(json.dumps({"result": result}))
     except BaseException as error:
-        allowed = {
-            "GRAPH_EXTRACTION_INVALID",
-            "GRAPH_EXTRACTION_UNGROUNDED",
-            "GRAPH_EXTRACTION_LIMIT",
-            "GRAPH_SOURCE_CHANGED",
-            "GRAPH_CONTENT_LIMIT",
-            "GRAPH_READBACK_FAILED",
-            "GRAPH_NOT_CONFIGURED",
-            "GRAPH_REQUEST_TOO_LARGE",
-        }
-        code = str(error) if str(error) in allowed else "GRAPH_BUILD_FAILED"
+        code = getattr(error, "code", None)
+        if isinstance(error, GraphModelError):
+            known = type(code) is str and code in GRAPH_MODEL_CODES
+        else:
+            known = isinstance(error, EngineError) and type(code) is str and code in WORKER_ERRORS
+        code = code if known else "GRAPH_BUILD_FAILED"
         diagnostic = {"error": code}
         reason = getattr(error, "reason", None)
-        if type(reason) is str and reason in VALIDATION_REASONS:
+        model_reason = (
+            code in GRAPH_MODEL_CODES
+            and type(reason) is str
+            and reason in GRAPH_MODEL_REASONS
+            and GraphModelError(reason).code == code
+        )
+        extraction_reason = (
+            code in EXTRACTION_ERRORS
+            and type(reason) is str
+            and reason in VALIDATION_REASONS - GRAPH_MODEL_REASONS
+        )
+        if model_reason or extraction_reason:
             diagnostic["reason"] = reason
             source_hash = getattr(error, "source_fingerprint", None)
-            if (
-                isinstance(error, EngineError)
-                and code in EXTRACTION_ERRORS
-                and type(source_hash) is str
-                and re.fullmatch(r"[0-9a-f]{64}", source_hash)
-            ):
+            if type(source_hash) is str and re.fullmatch(r"[0-9a-f]{64}", source_hash):
                 diagnostic["sourceHash"] = source_hash
         print(json.dumps(diagnostic))
 
