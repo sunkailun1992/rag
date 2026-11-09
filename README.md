@@ -62,7 +62,7 @@ python3 scripts/verify-rag-engine.py
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com:utils:1.6.1`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
+- 公共能力依赖 `com:utils:1.6.2`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
 - 个人与公司共用私有 Maven 地址，utils 分别使用 `com` 与 `com.kellen` group 隔离；Java 包名保持 `com.kellen.*`。
 - 测试框架统一使用 JUnit 5
 
@@ -161,7 +161,7 @@ bash scripts/check-secrets.sh
 
 ## 本批可观测性接入
 
-当前服务版本为 `1.2.1`，公共能力精确消费 `com:utils:1.6.1`，并由公共包传递引入轻量 `com:fleet-observability:0.1.1` 的安全 HTTP 终态事件。公共制品先完成 Maven Local 验证，再按对应 main 确定提交发布远端；目标环境的实际采集与全链读回单独验收。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
+当前服务版本为 `1.2.2`，公共能力精确消费 `com:utils:1.6.2`，并由公共包传递引入轻量 `com:fleet-observability:0.1.2` 的安全 HTTP 终态事件。公共制品先完成 Maven Local 验证，再按对应 main 确定提交发布远端；目标环境的实际采集与全链读回单独验收。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
 
 Admin/Zipkin 模板与三 profile 的 imports 已退役。服务 JVM 的可选 OTel agent 由统一启动入口负责，不通过全局 JAVA_TOOL_OPTIONS 注入 Gradle 或测试。部署时 Java 指标只由 Micrometer Prometheus 提供，OTEL_METRICS_EXPORTER 与 OTEL_LOGS_EXPORTER 均为 none；监控组件、配置发布和实际采集仍须独立验证。回滚须恢复匹配的制品与配置，先恢复旧 dataId 再回退旧消费者，不能用已删除的配置项假装完成回滚。
 
@@ -171,4 +171,10 @@ Admin/Zipkin 模板与三 profile 的 imports 已退役。服务 JVM 的可选 O
 
 ## PostgreSQL 启动修复补丁
 
-当前服务补丁版本为 `1.2.1`，公共依赖精确固定 `com:utils:1.6.1`，接入 PostgreSQL/Druid 超时单位修复及事务化、失败即拒绝启动的 DDL 执行。原定连接 3 秒、读取 30 秒预算保持，RPC 契约 `com:rpc-api:1.0.7` 与轻量采集库 `com:fleet-observability:0.1.1` 保持。公共制品、Jar 构建、服务器与 IDEA 原生启动须分别验证，修改依赖不代表目标环境已恢复。
+PostgreSQL 启动修复补丁版本为 `1.2.1`，公共依赖精确固定 `com:utils:1.6.1`，接入 PostgreSQL/Druid 超时单位修复及事务化、失败即拒绝启动的 DDL 执行。原定连接 3 秒、读取 30 秒预算保持，RPC 契约 `com:rpc-api:1.0.7` 与轻量采集库 `com:fleet-observability:0.1.1` 保持。公共制品、Jar 构建、服务器与 IDEA 原生启动须分别验证，修改依赖不代表目标环境已恢复。
+
+## JSON 请求体错误映射
+
+当前 Java 补丁 `1.2.2` 将真实 MVC 的 `HttpMessageNotReadableException` 精确映射为 HTTP 400、`A0400` 和固定提示，不再由通用异常兜底误报 500。解析正文、cause 消息及堆栈不进入该错误日志或响应，未预期业务异常仍保持 500，检索总预算和 Engine 不变。回归及运行态边界见 [JSON 请求体绑定错误](docs/json-binding-errors.md)。
+
+本次公共观测补丁通过 `com:utils:1.6.2` 精确传递 `com:fleet-observability:0.1.2`，修复 Servlet Security 在 ERROR 分派中再次拒绝导致终态缺失的问题；认证和错误响应保持。源码与测试通过后，目标进程和追踪/日志联结仍须单独读回验收。

@@ -8,18 +8,22 @@ import com.kellen.rag.service.RagRetrievalService;
 import com.kellen.rpc.rag.RagRetrievalRpcDTO;
 import com.kellen.security.config.SecurityAuthConfig;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -149,6 +153,55 @@ class RagControllerSecurityTest {
                 .andExpect(jsonPath("$.code").value("A0312"));
 
         verifyNoInteractions(ragRetrievalService);
+    }
+
+    /** 真实 MVC/Jackson 绑定失败必须在进入检索服务前返回固定、脱敏的客户端错误。 */
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"query\":\"SYNTHETIC_JSON_BODY_NOT_FOR_LOGS", "{\"query\":", "[]"})
+    void shouldReturnBadRequestForUnreadableRetrievalJsonWithoutCallingService(String body) throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        var captured = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        captured.start();
+        logger.addAppender(captured);
+        try {
+            var result = mockMvc.perform(post("/api/rag/retrievals")
+                            .with(user("rag-client").authorities(() -> "rag:retrieval:use"))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andReturn();
+            // 先确认生产MVC实际抛出的外层异常，不能只根据最深层JSON解析cause猜映射。
+            assertThat(result.getResolvedException()).isExactlyInstanceOf(HttpMessageNotReadableException.class);
+            assertThat(result.getResponse().getStatus()).isEqualTo(400);
+            var json = tools.jackson.databind.json.JsonMapper.builder().build()
+                    .readTree(result.getResponse().getContentAsString());
+            assertThat(json.path("success").asBoolean()).isFalse();
+            assertThat(json.path("code").asString()).isEqualTo("A0400");
+            assertThat(json.path("errorMessage").asString()).isEqualTo("请求体 JSON 格式不正确");
+            assertThat(result.getResponse().getContentAsString())
+                    .doesNotContain("SYNTHETIC_JSON_BODY", "UnexpectedEndOfInputException", "HttpMessageNotReadableException");
+            assertThat(captured.list).isNotEmpty().allSatisfy(event -> {
+                assertThat(event.getThrowableProxy()).isNull();
+                assertThat(event.getFormattedMessage()).doesNotContain("SYNTHETIC_JSON_BODY", body);
+                assertThat(event.getArgumentArray()).isNullOrEmpty();
+            });
+            verifyNoInteractions(ragRetrievalService);
+        } finally {
+            logger.detachAppender(captured);
+            captured.stop();
+        }
+    }
+
+    @Test
+    void shouldKeepUnexpectedRetrievalFailuresAsSafeServerErrors() throws Exception {
+        when(ragRetrievalService.retrieve(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("SYNTHETIC_INTERNAL_ONLY"));
+        var result = mockMvc.perform(post("/api/rag/retrievals")
+                        .with(user("rag-client").authorities(() -> "rag:retrieval:use"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"query\":\"synthetic\"}"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorMessage").value("系统处理失败，请查看服务日志"))
+                .andReturn();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("SYNTHETIC_INTERNAL_ONLY");
     }
 
     @Test
