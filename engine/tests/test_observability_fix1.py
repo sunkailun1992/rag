@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 import httpx
@@ -27,58 +28,68 @@ def test_production_uvicorn_stderr_is_jsonl_and_stdout_stays_empty(settings):
         RAG_ENGINE_API_KEY=settings.api_key.get_secret_value(),
         RAG_ENGINE_OBSERVABILITY_ENVIRONMENT="review-test",
     )
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "rag_engine.app:create_app",
-            "--factory",
-            "--fd",
-            str(listener.fileno()),
-            "--workers",
-            "1",
-            "--limit-concurrency",
-            "16",
-            "--no-access-log",
-            "--no-use-colors",
-        ],
-        pass_fds=(listener.fileno(),),
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    listener.close()
-    try:
-        with httpx.Client(base_url=f"http://127.0.0.1:{address[1]}", trust_env=False, timeout=2) as client:
-            deadline = time.monotonic() + 8
-            while True:
-                try:
-                    if client.get("/health").status_code == 200:
-                        break
-                except httpx.HTTPError:
-                    pass
-                assert process.poll() is None and time.monotonic() < deadline
-                time.sleep(0.02)
-            response = client.post("/v1/parses", headers=auth(settings), json=parse_payload(b"invalid PDF"))
-            assert response.status_code == 422
-        with socket.create_connection(address, timeout=2) as connection:
-            connection.sendall(b"not-http\r\n\r\n")
-            assert b"400" in connection.recv(4096)
-    finally:
-        process.terminate()
-        stdout, stderr = process.communicate(timeout=8)
-    assert stdout == b""
-    events = [json.loads(line) for line in stderr.decode().splitlines()]
-    assert {event["event"] for event in events} >= {
-        "rag_operation_finished",
-        "rag_diagnostic",
-        "rag_dependency_diagnostic",
-    }
-    assert all(
-        event["service"] == {"name": "rag-engine", "version": "0.2.4", "environment": "review-test"}
-        for event in events
-    )
+    # 最终字节回归无需未消费PIPE，小容量pipe会阻塞应用而不是仅捕获日志。
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "rag_engine.app:create_app",
+                "--factory",
+                "--fd",
+                str(listener.fileno()),
+                "--workers",
+                "1",
+                "--limit-concurrency",
+                "16",
+                "--no-access-log",
+                "--no-use-colors",
+            ],
+            pass_fds=(listener.fileno(),),
+            env=environment,
+            stdout=stdout_file,
+            stderr=stderr_file,
+        )
+        listener.close()
+        try:
+            with httpx.Client(
+                base_url=f"http://127.0.0.1:{address[1]}", trust_env=False, timeout=2
+            ) as client:
+                deadline = time.monotonic() + 8
+                while True:
+                    try:
+                        if client.get("/health").status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    assert process.poll() is None and time.monotonic() < deadline
+                    time.sleep(0.02)
+                response = client.post(
+                    "/v1/parses", headers=auth(settings), json=parse_payload(b"invalid PDF")
+                )
+                assert response.status_code == 422
+            with socket.create_connection(address, timeout=2) as connection:
+                connection.sendall(b"not-http\r\n\r\n")
+                assert b"400" in connection.recv(4096)
+        finally:
+            process.terminate()
+            process.wait(timeout=8)
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout, stderr = stdout_file.read(), stderr_file.read()
+        assert stdout == b""
+        events = [json.loads(line) for line in stderr.decode().splitlines()]
+        assert {event["event"] for event in events} >= {
+            "http.server.exchange",
+            "rag_operation_finished",
+            "rag_diagnostic",
+            "rag_dependency_diagnostic",
+        }
+        assert all(
+            event["service"] == {"name": "rag-engine", "version": "0.2.5", "environment": "review-test"}
+            for event in events
+        )
 
 
 def test_duplicate_diagnostic_keys_cannot_survive_final_stderr():

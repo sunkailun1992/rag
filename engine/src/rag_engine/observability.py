@@ -19,14 +19,14 @@ from opentelemetry.metrics import NoOpMeterProvider
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanLimits, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased, TraceIdRatioBased
 from opentelemetry.trace import Link, SpanKind, Status, StatusCode
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 STAGES = frozenset(
     {
         "parse",
@@ -342,7 +342,12 @@ class Observability:
                         "deployment.environment.name": settings.observability_environment,
                     }
                 ),
-                sampler=ParentBased(TraceIdRatioBased(settings.trace_sample_ratio)),
+                # 个人开发环境全采样，包括上游sampled=0；保留原trace/parent，不新建根替代。
+                sampler=(
+                    ALWAYS_ON
+                    if settings.observability_environment == "github-dev"
+                    else ParentBased(TraceIdRatioBased(settings.trace_sample_ratio))
+                ),
                 shutdown_on_exit=False,
                 span_limits=SpanLimits(
                     max_attributes=8,
@@ -391,7 +396,7 @@ class Observability:
             "result": result if result in RESULTS else "failed",
             "elapsed_ms": max(0, int(elapsed_ms)),
         }
-        logger.info(json.dumps(value, separators=(",", ":")), extra={"_rag_safe_json": True})
+        emit_safe_event(value)
 
     @contextmanager
     def operation(self, stage, *, root=False, links=()):
@@ -482,8 +487,20 @@ class ObservedTransport(httpx.AsyncBaseTransport):
         await self.transport.aclose()
 
 
-def route_template(path):
-    if path in {
+def emit_safe_event(value):
+    """安全sink失败不能改变请求结果，也不回退打印原文或异常。"""
+    try:
+        logger.info(json.dumps(value, separators=(",", ":")), extra={"_rag_safe_json": True})
+    except Exception:
+        pass
+
+
+def matched_route(scope):
+    """只采用框架已经匹配的声明模板，不把原始路径或客户端值用作日志路由。"""
+    path = getattr(scope.get("route"), "path", None)
+    if not isinstance(path, str):
+        return "UNMATCHED"
+    if path == "/v1/graphs/builds/{buildId}" or path in {
         "/health",
         "/metrics",
         "/v1/openapi.json",
@@ -494,12 +511,12 @@ def route_template(path):
         "/v1/graphs/deactivations",
     }:
         return path
-    if re.fullmatch(r"/v1/graphs/builds/[^/]+", path):
-        return "/v1/graphs/builds/{buildId}"
-    return "other"
+    return "UNMATCHED"
 
 
 class ObservationBoundary:
+    """最外层ASGI终态：只计实际receive/send字节，不消费、缓存或导出任何正文。"""
+
     def __init__(self, app, observation):
         self.app, self.observation = app, observation
 
@@ -507,10 +524,10 @@ class ObservationBoundary:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        route = route_template(scope["path"])
         method = (
             scope["method"]
-            if scope["method"] in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+            if scope["method"]
+            in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
             else "OTHER"
         )
         # 只接受W3C trace字段，不提取baggage，也不向span复制请求header。
@@ -519,42 +536,147 @@ class ObservationBoundary:
             values = [value for name, value in scope["headers"] if name.lower() == key]
             if len(values) == 1:
                 carrier[key.decode()] = values[0].decode("latin1")
-        result = "failed"
-        status = 500
+        result, status, failure = "failed", None, None
+        request_bytes = response_bytes = 0
+        request_complete = response_complete = disconnected = False
+        response_bytes_known = True
+        response_stream = False
+        started = time.monotonic()
+
+        async def observed_receive():
+            nonlocal request_bytes, request_complete, disconnected
+            message = await receive()
+            if message["type"] == "http.request":
+                request_bytes += len(message.get("body", b""))
+                if not message.get("more_body", False):
+                    request_complete = True
+            elif message["type"] == "http.disconnect":
+                disconnected = True
+            return message
 
         async def observed_send(message):
-            nonlocal status
+            nonlocal status, response_bytes, response_complete, response_stream, response_bytes_known
+            # 先写成功再计数；失败分片不能按已发送处理。
+            try:
+                await send(message)
+            except BaseException:
+                # server可能已经写出当前消息的一部分，之前成功片段不代表可证明的总数。
+                response_bytes_known = response_complete = False
+                raise
             if message["type"] == "http.response.start":
-                status = message["status"]
-            await send(message)
+                value = message["status"]
+                if type(value) is int and 100 <= value <= 599:
+                    status = value
+                response_stream = any(
+                    key.lower() == b"content-type" and value.lower().startswith(b"text/event-stream")
+                    for key, value in message.get("headers", ())
+                )
+            elif message["type"] == "http.response.body":
+                response_bytes += len(message.get("body", b""))
+                if not message.get("more_body", False):
+                    response_complete = True
 
         with (
             self.observation.activate(),
             self.observation.tracer.start_as_current_span(
-                method + " " + route,
+                method + " UNMATCHED",
                 context=PROPAGATOR.extract(carrier, context=Context()),
                 kind=SpanKind.SERVER,
-                attributes={"http.route": route, "http.request.method": method},
+                attributes={"http.request.method": method},
                 record_exception=False,
                 set_status_on_exception=False,
             ) as span,
         ):
             try:
-                await self.app(scope, receive, observed_send)
+                await self.app(scope, observed_receive, observed_send)
                 result = (
-                    "timeout"
+                    "cancelled"
+                    if disconnected
+                    else "timeout"
                     if status in {408, 504}
-                    else ("failed" if status >= 500 else ("client_error" if status >= 400 else "success"))
+                    else "failed"
+                    if status is None or status >= 500 or not response_complete or not response_bytes_known
+                    else "client_error"
+                    if status >= 400
+                    else "success"
                 )
+                if result == "cancelled":
+                    response_complete = False
                 business = scope.get("state", {}).get("observation_result")
-                if status == 200 and business in {"degraded", "empty"}:
+                if result == "success" and business in {"degraded", "empty"}:
                     result = business
             except BaseException as error:
+                failure = error
                 result = failure_result(error)
+                if result == "cancelled":
+                    response_complete = False
                 raise
             finally:
-                span.set_attribute("http.response.status_code", status)
+                if not response_bytes_known:
+                    response_complete = False
+                route = matched_route(scope)
+                span.update_name(method + " " + route)
+                span.set_attribute("http.route", route)
+                if status is not None:
+                    span.set_attribute("http.response.status_code", status)
                 span.set_attribute("rag.result", result)
-                if status >= 500:
+                if result in {"failed", "timeout"} or status is not None and status >= 500:
                     span.set_status(Status(StatusCode.ERROR))
-                self.observation.requests.labels(route, method, result).inc()
+                try:
+                    self.observation.requests.labels(route, method, result).inc()
+                except Exception:
+                    pass
+                outcome = (
+                    "rejected"
+                    if status in {401, 403}
+                    else "cancelled"
+                    if result == "cancelled"
+                    else "timeout"
+                    if result == "timeout"
+                    else "failure"
+                    if result in {"failed", "client_error"}
+                    else "success"
+                )
+                elapsed = max(0, int((time.monotonic() - started) * 1000))
+                status_text = status if status is not None else "unknown"
+                value = {
+                    **event_metadata(self.observation),
+                    "event": "http.server.exchange",
+                    "http_method": method,
+                    "http_route": route,
+                    "duration_ms": elapsed,
+                    "outcome": outcome,
+                    "request_bytes": request_bytes,
+                    "request_body_complete": request_complete,
+                    "response_body_complete": response_complete,
+                    "request_body_omitted": "policy"
+                    if request_bytes
+                    else "empty"
+                    if request_complete
+                    else "not_consumed",
+                    "response_body_omitted": "stream"
+                    if response_stream
+                    else "policy"
+                    if response_bytes
+                    else "empty"
+                    if response_complete
+                    else "incomplete",
+                    "summary": f"{method} {route} {status_text} {elapsed}ms {outcome}",
+                }
+                if status is not None:
+                    value["http_status"] = status
+                if response_bytes_known:
+                    value["response_bytes"] = response_bytes
+                if failure is not None:
+                    value["error_type"] = (
+                        "cancelled"
+                        if result == "cancelled"
+                        else "timeout"
+                        if result == "timeout"
+                        else "validation"
+                        if isinstance(failure, ValueError)
+                        else "server"
+                    )
+                    if isinstance(failure, EngineError) and failure.code in SAFE_CODES:
+                        value["error_code"] = failure.code
+                emit_safe_event(value)

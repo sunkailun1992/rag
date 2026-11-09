@@ -8,7 +8,7 @@
 
 ## Python 引擎演进
 
-本批 Java 版本为 `1.1.6`，同仓独立的 [`engine/`](engine/README.md) 负责解析、检索与可选的语义图谱构建。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入和图谱来源终检；现有 HTTP 和 Dubbo 契约保持。
+本批 Java 版本为 `1.1.7`，同仓独立的 [`engine/`](engine/README.md) 负责解析、检索与可选的语义图谱构建。Java 继续负责权限、租户、文档版本、幂等、Qdrant 写入和图谱来源终检；现有 HTTP 和 Dubbo 契约保持。
 
 - 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
 - 检索统一调用 Python Engine，失败直接返回现有 RPC 降级结果；旧 Java 查询/重排与迁移开关已移除。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
@@ -62,7 +62,7 @@ python3 scripts/verify-rag-engine.py
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com:utils:1.5.3`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
+- 公共能力依赖 `com:utils:1.5.5`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
 - 个人与公司共用私有 Maven 地址，utils 分别使用 `com` 与 `com.kellen` group 隔离；Java 包名保持 `com.kellen.*`。
 - 测试框架统一使用 JUnit 5
 
@@ -162,6 +162,6 @@ bash scripts/check-secrets.sh
 
 ## 本批可观测性接入
 
-公共能力精确消费 `com:utils:1.5.3`（本批仅 Maven Local 验证，未发布远端）。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
+当前服务版本为 `1.1.7`，公共能力精确消费 `com:utils:1.5.5`，并由公共包传递引入轻量 `com:fleet-observability:0.1.0` 的安全 HTTP 终态事件。公共制品先完成 Maven Local 验证，再按对应 main 确定提交发布远端；目标环境的实际采集与全链读回单独验收。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
 
 Admin/Zipkin 模板与三 profile 的 imports 已退役。服务 JVM 的可选 OTel agent 由统一启动入口负责，不通过全局 JAVA_TOOL_OPTIONS 注入 Gradle 或测试。部署时 Java 指标只由 Micrometer Prometheus 提供，OTEL_METRICS_EXPORTER 与 OTEL_LOGS_EXPORTER 均为 none；监控组件、配置发布和实际采集仍须独立验证。回滚须恢复匹配的制品与配置，先恢复旧 dataId 再回退旧消费者，不能用已删除的配置项假装完成回滚。

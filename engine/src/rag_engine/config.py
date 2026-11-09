@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     observability_environment: str = Field(default="github-dev", pattern=r"^[a-z0-9_-]{1,32}$")
     otlp_traces_endpoint: str = Field(default="http://127.0.0.1:4318/v1/traces", min_length=1)
     otlp_timeout_seconds: float = Field(default=0.5, ge=0.05, le=1, allow_inf_nan=False)
+    # github-dev开启观测时固定全采样；该比例仅控制其他环境的独立根trace。
     trace_sample_ratio: float = Field(default=0.1, ge=0, le=1, allow_inf_nan=False)
     graph_enabled: bool = False
     graph_retrieval_enabled: bool = False

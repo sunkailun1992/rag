@@ -101,6 +101,13 @@ class RequestBoundary:
             await self.app(scope, receive, send)
 
 
+class ObservedFastAPI(FastAPI):
+    """HTTP观测包住框架错误处理；不把内层异常提前当作最终响应。"""
+
+    def build_middleware_stack(self):
+        return ObservationBoundary(super().build_middleware_stack(), self.state.observability)
+
+
 def create_app(
     settings: Settings | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
@@ -154,7 +161,7 @@ def create_app(
         finally:
             await asyncio.to_thread(observation.shutdown)
 
-    app = FastAPI(
+    app = ObservedFastAPI(
         title="RAG Engine Internal API",
         version="1.0.0",
         lifespan=lifespan,
@@ -164,7 +171,6 @@ def create_app(
     )
     app.state.observability = observation
     app.add_middleware(RequestBoundary, settings=settings)
-    app.add_middleware(ObservationBoundary, observation=observation)
 
     @app.exception_handler(EngineError)
     async def engine_failure(_request: Request, exception: EngineError):

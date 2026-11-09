@@ -314,7 +314,7 @@ async def test_asgi_failure_resets_context_and_exports_no_raw_exception(settings
     assert not trace.get_current_span().get_span_context().is_valid
     obs.shutdown()
     spans = exporter.get_finished_spans()
-    assert len(spans) == 1 and spans[0].name == "OTHER other"
+    assert len(spans) == 1 and spans[0].name == "OTHER UNMATCHED"
     assert spans[0].events == ()
     assert spans[0].status.description is None
     assert "private" not in str(spans[0].attributes) + caplog.text
