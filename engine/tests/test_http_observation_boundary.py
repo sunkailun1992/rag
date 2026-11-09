@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from conftest import auth
+from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from rag_engine.app import create_app
@@ -18,7 +19,7 @@ def observation(settings):
     settings.observability_enabled = True
     settings.trace_sample_ratio = 0
     exporter = InMemorySpanExporter()
-    return Observability(settings, exporter=exporter), exporter
+    return Observability(settings, exporter=exporter, log_exporter=InMemoryLogRecordExporter()), exporter
 
 
 def events(caplog):

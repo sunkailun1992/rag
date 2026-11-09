@@ -10,12 +10,18 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from opentelemetry import trace
+from opentelemetry._logs import SeverityNumber
 from opentelemetry.context import Context
+from opentelemetry.exporter.otlp.proto.http._common import _resolve_headers
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.metrics import NoOpMeterProvider
+from opentelemetry.sdk._logs import LoggerProvider, LogRecordLimits
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanLimits, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -26,7 +32,24 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
+HTTP_METHODS = frozenset(
+    {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
+)
+HTTP_ROUTES = frozenset(
+    {
+        "/health",
+        "/metrics",
+        "/v1/openapi.json",
+        "/v1/parses",
+        "/v1/retrievals",
+        "/v1/graphs/builds",
+        "/v1/graphs/builds/{buildId}",
+        "/v1/graphs/queries",
+        "/v1/graphs/deactivations",
+        "UNMATCHED",
+    }
+)
 STAGES = frozenset(
     {
         "parse",
@@ -310,8 +333,16 @@ class Operation:
     result: str = "success"
 
 
+class BoundedLogRecordProcessor(BatchLogRecordProcessor):
+    """固定SDK 1.45.2的public shutdown不收预算；仅收紧其官方batch退出等待。"""
+
+    def shutdown(self):
+        # 同版本force_flush(timeout)尚不遵守预算，不能用它假装限时退出。
+        self._batch_processor.shutdown(timeout_millis=1000)
+
+
 class Observability:
-    def __init__(self, settings, *, exporter=None):
+    def __init__(self, settings, *, exporter=None, log_exporter=None):
         self.environment = settings.observability_environment
         protect_dependency_logs(self.environment)
         self.registry = CollectorRegistry()
@@ -332,16 +363,27 @@ class Observability:
             "rag_engine_graph_builds", "父进程构建终态", ["result"], registry=self.registry
         )
         self.provider = None
+        self.log_provider = None
+        self.event_logger = None
         if settings.observability_enabled:
+            endpoint = urlsplit(settings.otlp_traces_endpoint)
+            if not endpoint.path.endswith("/v1/traces"):
+                raise ValueError("OTLP traces endpoint must end with /v1/traces")
+            logs_endpoint = urlunsplit(endpoint._replace(path=endpoint.path[:-6] + "logs"))
+            # 固定版本官方解析器；两信号复用相同认证，拒绝日志专属环境追加额外头。
+            headers = _resolve_headers(None, "OTEL_EXPORTER_OTLP_TRACES_HEADERS")
+            if _resolve_headers(headers, "OTEL_EXPORTER_OTLP_LOGS_HEADERS") != headers:
+                raise ValueError("OTLP logs headers must match trace transport headers")
+            resource = Resource(
+                {
+                    "service.name": "rag-engine",
+                    "service.version": VERSION,
+                    "deployment.environment.name": settings.observability_environment,
+                }
+            )
             # Resource.create会隐式读取环境属性和进程信息；这里仅保留显式白名单。
             self.provider = TracerProvider(
-                resource=Resource(
-                    {
-                        "service.name": "rag-engine",
-                        "service.version": VERSION,
-                        "deployment.environment.name": settings.observability_environment,
-                    }
-                ),
+                resource=resource,
                 # 个人开发环境全采样，包括上游sampled=0；保留原trace/parent，不新建根替代。
                 sampler=(
                     ALWAYS_ON
@@ -364,6 +406,7 @@ class Observability:
                 # Collector地址/总HTTP等待显式设置；不从业务请求复制任何头。
                 exporter = OTLPSpanExporter(
                     endpoint=settings.otlp_traces_endpoint,
+                    headers=headers,
                     timeout=settings.otlp_timeout_seconds,
                     max_request_size=1024 * 1024,
                     meter_provider=NoOpMeterProvider(),
@@ -377,6 +420,31 @@ class Observability:
                     export_timeout_millis=1000,
                 )
             )
+            self.log_provider = LoggerProvider(
+                resource=resource,
+                shutdown_on_exit=False,
+                meter_provider=NoOpMeterProvider(),
+                log_record_limits=LogRecordLimits(max_attributes=24, max_attribute_length=512),
+            )
+            if log_exporter is None:
+                log_exporter = OTLPLogExporter(
+                    endpoint=logs_endpoint,
+                    headers=headers,
+                    timeout=settings.otlp_timeout_seconds,
+                    max_request_size=1024 * 1024,
+                    meter_provider=NoOpMeterProvider(),
+                )
+            self.log_provider.add_log_record_processor(
+                BoundedLogRecordProcessor(
+                    log_exporter,
+                    max_queue_size=256,
+                    max_export_batch_size=32,
+                    schedule_delay_millis=500,
+                    export_timeout_millis=1000,
+                    meter_provider=NoOpMeterProvider(),
+                )
+            )
+            self.event_logger = self.log_provider.get_logger("rag_engine.safe_events", VERSION)
         provider = self.provider or trace.NoOpTracerProvider()
         self.tracer = provider.get_tracer("rag_engine", VERSION)
 
@@ -396,7 +464,7 @@ class Observability:
             "result": result if result in RESULTS else "failed",
             "elapsed_ms": max(0, int(elapsed_ms)),
         }
-        emit_safe_event(value)
+        emit_safe_event(value, self)
 
     @contextmanager
     def operation(self, stage, *, root=False, links=()):
@@ -438,8 +506,30 @@ class Observability:
             self.retrievals.labels("graph", "success").inc()
 
     def shutdown(self):
-        if self.provider:
-            self.provider.shutdown()
+        for provider in (self.provider, self.log_provider):
+            if provider:
+                try:
+                    provider.shutdown()
+                except Exception:
+                    pass
+
+    def export_event(self, value):
+        """只接收显式安全事件，不挂通用LoggingHandler、不采标准库或worker日志。"""
+        if self.event_logger is None:
+            return
+        attributes = safe_event_attributes(value)
+        if attributes is None:
+            return
+        context = trace.get_current_span().get_span_context()
+        if context.is_valid:
+            attributes.update(trace_id=f"{context.trace_id:032x}", span_id=f"{context.span_id:016x}")
+        self.event_logger.emit(
+            timestamp=time.time_ns(),
+            severity_number=SeverityNumber.INFO,
+            severity_text="INFO",
+            body=None,
+            attributes=attributes,
+        )
 
 
 @contextmanager
@@ -487,10 +577,66 @@ class ObservedTransport(httpx.AsyncBaseTransport):
         await self.transport.aclose()
 
 
-def emit_safe_event(value):
+def safe_event_attributes(value):
+    """OTLP只用有限标量字段；丢弃正文、诊断、动态身份及调用者提供的summary。"""
+    event = value.get("event")
+    if event == "rag_operation_finished":
+        if value.get("stage") not in STAGES or value.get("result") not in RESULTS:
+            return None
+        elapsed = value.get("elapsed_ms")
+        if type(elapsed) is not int or not 0 <= elapsed <= 2**63 - 1:
+            return None
+        result = value["result"]
+        return {
+            "event": event,
+            "stage": value["stage"],
+            "duration_ms": elapsed,
+            "outcome": "failure" if result in {"failed", "client_error"} else result,
+        }
+    if event != "http.server.exchange":
+        return None
+    method, route, outcome = (value.get(key) for key in ("http_method", "http_route", "outcome"))
+    if (
+        method not in HTTP_METHODS
+        or route not in HTTP_ROUTES
+        or outcome not in {"success", "failure", "rejected", "cancelled", "timeout"}
+    ):
+        return None
+    attributes = {"event": event, "http_method": method, "http_route": route, "outcome": outcome}
+    for key in ("duration_ms", "request_bytes", "response_bytes"):
+        count = value.get(key)
+        if type(count) is int and 0 <= count <= 2**63 - 1:
+            attributes[key] = count
+    status = value.get("http_status")
+    if type(status) is int and 100 <= status <= 599:
+        attributes["http_status"] = status
+    for key in ("request_body_complete", "response_body_complete"):
+        if type(value.get(key)) is bool:
+            attributes[key] = value[key]
+    for key in ("request_body_omitted", "response_body_omitted"):
+        if value.get(key) in {"policy", "empty", "not_consumed", "stream", "incomplete"}:
+            attributes[key] = value[key]
+    if value.get("error_type") in {"cancelled", "timeout", "validation", "server"}:
+        attributes["error_type"] = value["error_type"]
+    if value.get("error_code") in SAFE_CODES:
+        attributes["error_code"] = value["error_code"]
+    attributes["summary"] = (
+        f"{method} {route} {attributes.get('http_status', 'unknown')} "
+        f"{attributes.get('duration_ms', 0)}ms {outcome}"
+    )
+    return attributes
+
+
+def emit_safe_event(value, observation=None):
     """安全sink失败不能改变请求结果，也不回退打印原文或异常。"""
     try:
         logger.info(json.dumps(value, separators=(",", ":")), extra={"_rag_safe_json": True})
+    except Exception:
+        pass
+    try:
+        observation = observation or _CURRENT.get()
+        if observation is not None:
+            observation.export_event(value)
     except Exception:
         pass
 
@@ -500,16 +646,7 @@ def matched_route(scope):
     path = getattr(scope.get("route"), "path", None)
     if not isinstance(path, str):
         return "UNMATCHED"
-    if path == "/v1/graphs/builds/{buildId}" or path in {
-        "/health",
-        "/metrics",
-        "/v1/openapi.json",
-        "/v1/parses",
-        "/v1/retrievals",
-        "/v1/graphs/builds",
-        "/v1/graphs/queries",
-        "/v1/graphs/deactivations",
-    }:
+    if path in HTTP_ROUTES:
         return path
     return "UNMATCHED"
 
@@ -679,4 +816,4 @@ class ObservationBoundary:
                     )
                     if isinstance(failure, EngineError) and failure.code in SAFE_CODES:
                         value["error_code"] = failure.code
-                emit_safe_event(value)
+                emit_safe_event(value, self.observation)

@@ -39,6 +39,7 @@ def test_metrics_reject_duplicate_bearer_and_use_only_bounded_labels(settings):
 
 
 def memory_observability(settings):
+    from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
     from rag_engine.observability import Observability
@@ -46,7 +47,7 @@ def memory_observability(settings):
     settings.observability_enabled = True
     settings.trace_sample_ratio = 1
     exporter = InMemorySpanExporter()
-    return Observability(settings, exporter=exporter), exporter
+    return Observability(settings, exporter=exporter, log_exporter=InMemoryLogRecordExporter()), exporter
 
 
 async def test_concurrent_asgi_and_httpx_contexts_preserve_trace_and_reset(settings):
@@ -439,7 +440,7 @@ def test_real_otlp_http_export_is_metadata_only_with_explicit_resources(settings
 
     class Collector(BaseHTTPRequestHandler):
         def do_POST(self):
-            captured.append(self.rfile.read(int(self.headers["Content-Length"])))
+            captured.append((self.path, self.rfile.read(int(self.headers["Content-Length"]))))
             self.send_response(200)
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -464,9 +465,11 @@ def test_real_otlp_http_export_is_metadata_only_with_explicit_resources(settings
         server.shutdown()
         server.server_close()
         thread.join(timeout=1)
-    assert len(captured) == 1
-    assert b"private-resource-body" not in captured[0]
-    message = ExportTraceServiceRequest.FromString(captured[0])
+    assert {path for path, _body in captured} == {"/v1/traces", "/v1/logs"}
+    assert all(b"private-resource-body" not in body for _path, body in captured)
+    message = ExportTraceServiceRequest.FromString(
+        next(body for path, body in captured if path == "/v1/traces")
+    )
     resource = message.resource_spans[0]
     assert {attribute.key for attribute in resource.resource.attributes} == {
         "service.name",
