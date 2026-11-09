@@ -23,7 +23,7 @@
 - 项目名称：`rag`
 - 项目类型：RAG 知识检索服务后端；为 fleet / AI 中台提供「知识检索」能力，以 **MCP 工具 + Nacos AI Registry** 形式被智能体（如 `ai-agent` 及后续新中台 agent）发现并调用。
 - 技术栈：Java 17、Spring Boot 4、Qdrant REST 向量库、独立 Python 3.12 引擎（FastAPI / LlamaIndex / pypdf）、Spring Cloud Alibaba、Nacos、Dubbo、MyBatis-Plus、Gradle、`com:utils`、`com:rpc-api`
-- Utils 制品隔离：本 GitHub 个人项目固定使用 `com:utils:1.5.3`；公司项目使用 `com.kellen:utils`。二者共用私有 Maven 地址，以 group 区分制品；Java 包名 `com.kellen.*` 不随 Maven group 改动。
+- Utils 制品隔离：本 GitHub 个人项目固定使用 `com:utils:1.6.0`；公司项目使用 `com.kellen:utils`。二者共用私有 Maven 地址，以 group 区分制品；Java 包名 `com.kellen.*` 不随 Maven group 改动。
 - 同级依赖：`../rpc-api` 提供跨服务 RPC 接口和 DTO 契约；`../utils` 提供公共响应、认证上下文、租户、多数据源和基础工具；`../gateway` 负责路由；`../ai-agent` 是当前主要 MCP / AI Registry 消费方
 - 当前状态：已实现 XLSX/DOCX 结构化摄取、embedding、Qdrant 检索、rerank、版本/幂等、读回校验及图谱。本批增加独立 Python 解析/检索引擎、PDF/OCR 适配和评估基准；旧检索与图谱迁移开关已删除。混合检索已实现 LlamaIndex dense/sparse RRF 与显式迁移，必须实际验收后启用；MCP/AI Registry、查询改写和异步摄取仍未实施，不能按文件或依赖存在宣称已启用。
 - 引擎改造入口：先读 `docs/rag-engine-upgrade.md`、`engine/README.md`、`engine/openapi.json` 与 `evaluation/README.md`；不得绕过 Java 权限门面直接将 Python API 暴露给前端。
@@ -81,7 +81,7 @@
 
 - 子智能体可并行分析 Controller、Service、向量库配置、MCP 注册、AI Registry 注册、gateway 路由和检索链路。
 - 不允许多个 worker 同时修改同一核心检索 Service、向量库配置、MCP 契约或 DDL 脚本。
-- RAG 服务全新或空业务库首次启动前，必须先在目标业务库手动执行 `../utils/src/main/resources/db/common-infra-schema.sql`；Seata AT 会在 `DataSource` 初始化时先检查 `undo_log`，不能依赖应用首次启动自动创建该表。新增知识库业务 DDL 时追加独立 SQL 文件，不修改已执行的公共基础设施脚本。
+- RAG 服务全新或空业务库首次启动前，必须先在目标业务库手动执行 `../utils/src/main/resources/db/postgresql/common-infra-schema.sql`；Seata AT 会在 `DataSource` 初始化时先检查 `undo_log`，不能依赖应用首次启动自动创建该表。新增知识库业务 DDL 时追加独立 SQL 文件，不修改已执行的公共基础设施脚本。
 - 最终检索归属、访问权限、向量库一致性和测试结论必须由主智能体统一判断。
 
 ## 验证命令

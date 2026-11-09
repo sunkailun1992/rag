@@ -24,7 +24,7 @@
 |---|---|---|
 | 本地引导 | `application*.yml`，私有 `config/application-dev.properties` | 连接 Nacos 前需要的服务与环境入口；私有文件不进 Git |
 | 共享变量 | `reuse-configuration.yaml` | 跨文件引用的中间件地址、Dubbo 分组等 `custom.*` 变量 |
-| 共享基础设施 | `redis.yaml`、`rabbitmq.yaml`、`elasticsearch.yaml`、`qdrant.yaml`、`dubbo.yaml`、`mybatis-plus.yaml`、`seata.yaml`、`xxl-job.yaml`、`storage.yaml` | 中间件连接、隔离边界及模块开关；存储使用 X File Storage / MinIO |
+| 共享基础设施 | `redis.yaml`、`rabbitmq.yaml`、`elasticsearch.yaml`、`qdrant.yaml`、`dubbo.yaml`、`mybatis-plus.yaml`、`seata.yaml`、`storage.yaml` | 中间件连接、隔离边界及模块开关；存储使用 X File Storage / MinIO |
 | 安全与可观测性 | `security-auth.yaml`、`security-jwt.yaml`、`actuator.yaml`、`logging.yml`、`traffic-governance.yaml`、`swagger.yaml` | 认证/租户、人员 JWT、管理端点、日志、流量治理及监控 |
 | 共享 AI 协议 | `a2a.yaml` | A2A 租户、协议入口、提供方和注册契约 |
 | 共享 AI 模型 | `ai-model-secrets.yaml` | 模型选择及私有凭据占位符，按实际消费者导入 |
@@ -56,3 +56,5 @@
 5. 真正需要拆分或合并配置时另行验证完整迁移链：读回当前真实值并备份、逐键/类型/有序列表和有效覆盖结果比对、新旧并存、消费者切换、读回和运行验证后才清理旧项。原始导入不相邻、optional/刷新语义不同或有冲突时停止自动合并。回滚先恢复旧 dataId，再回退消费者 imports；不能把模板删除或配置并存称为运行验收。
 6. 私有渲染使用新的空输出目录，发布前将文件集合与 catalog 核对，避免已移除的旧文件残留后被再次发布。所有参数和文件说明必须保留；配置描述不包含任何真实凭据。
 7. 新服务按既有引导结构接入。需要通过网关访问时同步检查路由与后端 Controller 原生路径；需要 Swagger 聚合时再显式启用并验证对应文档入口，不因新增服务默认开放管理或文档端点。
+
+个人 XXL-JOB 已退役，不再新增其依赖、配置类或 `xxl-job.yaml` 导入。调度选用 NAS 独立 Conductor OSS，通过 REST 接入；业务 Java 调度接口尚未实现，保持 Java 17，不为此引入要求 Java 21 的最新 SDK。

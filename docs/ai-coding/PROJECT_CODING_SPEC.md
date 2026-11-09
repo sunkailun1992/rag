@@ -60,10 +60,10 @@
 规则：
 
 - 连接 Nacos 自身所需的通用骨架保留在本地 `application.yml`；Nacos 地址、namespace、config/discovery 绑定和 `spring.config.import` 必须放在 `application-dev/test/prod.yml` 对应环境文件中。
-- MySQL、Redis、RabbitMQ、Seata、XXL-JOB、Elasticsearch、Kibana、Zipkin 等基础设施地址优先放入 Nacos 公共配置，例如 `reuse-configuration.yaml`。
-- 业务配置只引用公共变量，例如 `${custom.infra-host}`、`${custom.infra-mysql-addr}`、`${custom.infra-xxl-job-admin}`、`${custom.local-service-host}`。
+- PostgreSQL、Redis、RabbitMQ、Seata、Elasticsearch、Kibana、Zipkin 等基础设施地址优先放入 Nacos 公共配置，例如 `reuse-configuration.yaml`。
+- 业务配置只引用公共变量，例如 `${custom.infra-host}`、`${custom.infra-postgresql-addr}`、`${custom.local-service-host}`。
 - 不要在多个 `*.yaml` 配置文件中直接写同一个基础设施 IP。
-- 需要区分服务端地址和本机回调地址时，使用不同变量；例如 XXL-JOB Admin 地址使用基础设施地址，执行器回调 IP 使用当前服务所在机器地址。
+- 需要区分服务端地址和本机回调地址时，使用不同变量；例如 NAS 基础设施入口与当前服务发布地址分别配置；不恢复已退役执行器的回调键。
 - 如果当前微服务复制到其他项目，只调整公共配置中的基础设施变量，不批量替换各业务配置文件。
 
 ## 路径与本机环境规范
@@ -178,29 +178,29 @@ GET    /<resources>/count        按 Query 条件统计数量；只有页面确�
 项目 DDL 入口：
 
 ```text
-com.kellen.bean.MysqlDdl
+com.kellen.bean.PostgresqlDdl
 ```
 
 SQL 脚本位置：
 
 ```text
-src/main/resources/db/*.sql
+src/main/resources/db/postgresql/*.sql
 ```
 
 规则：
 
-- 全新或空业务库首次启动前，必须先在目标业务库手动执行 `../utils/src/main/resources/db/common-infra-schema.sql`。Seata AT 的 `DataSourceProxy` 会早于 MyBatis-Plus DDL 检查 `undo_log`，所以不能指望应用首次启动自动建出公共基础表。
-- 修改 `src/main/resources/db/*.sql` 前，必须先查看 `MysqlDdl#getSqlFiles()` 确认脚本列表和执行顺序。
+- 全新或空业务库首次启动前，必须先在目标业务库手动执行 `../utils/src/main/resources/db/postgresql/common-infra-schema.sql`。Seata AT 的 `DataSourceProxy` 会早于 MyBatis-Plus DDL 检查 `undo_log`，所以不能指望应用首次启动自动建出公共基础表。
+- 修改 `src/main/resources/db/postgresql/*.sql` 前，必须先查看 `PostgresqlDdl#getSqlFiles()` 确认脚本列表和执行顺序。
 - 修改任意已存在 SQL 脚本前，必须连接当前目标数据库查询 `ddl_history`，确认该脚本是否已经执行。
 - 如果 `ddl_history` 已存在该脚本记录，禁止继续修改该 SQL 文件；表结构、默认数据、权限资源树等后续变更必须新增独立 SQL 脚本。
 - 如果无法连接数据库、无法确认 `ddl_history`、或环境不明确，必须按“脚本可能已执行”处理，只能新增 SQL 脚本，不能修改历史 SQL。
 - 只有明确确认 `ddl_history` 没有该脚本记录时，才允许修改该未执行脚本。
 - 原始建表和基础数据脚本一旦在任何环境执行过，后续变更只能新增脚本，不允许把新变更继续塞回原脚本。
-- 新增或修改表结构、默认数据、权限资源树时，新增独立 SQL 脚本并追加到 `MysqlDdl#getSqlFiles()`。
-- `MysqlDdl#getSqlFiles()` 统一声明脚本路径。
+- 新增或修改表结构、默认数据、权限资源树时，新增独立 SQL 脚本并追加到 `PostgresqlDdl#getSqlFiles()`。
+- `PostgresqlDdl#getSqlFiles()` 统一声明脚本路径。
 - 基础字典、默认角色、默认权限资源等初始化数据也写入 DDL SQL 脚本。
-- SQL 脚本必须支持重复执行，使用 `IF NOT EXISTS`、`INSERT IGNORE` 或具备明确租户/主键条件的确定性 `UPDATE`。
-- MySQL 环境不一定支持 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`；新增字段需要兼容旧 MySQL 时，使用 `information_schema.COLUMNS` 判断字段是否存在，再通过 `PREPARE/EXECUTE` 执行 `ALTER TABLE`。
+- SQL 脚本必须支持重复执行，使用 `IF NOT EXISTS`、`INSERT ... ON CONFLICT DO NOTHING` 或具备明确租户/主键条件的确定性 `UPDATE`。
+- PostgreSQL 新增字段使用新的增量脚本；`ADD COLUMN IF NOT EXISTS` 只能处理重复执行，仍须核对实际列结构。历史 MySQL SQL 不回改、不在 PostgreSQL 执行。
 - 不再为基础数据新增业务初始化接口，避免启动后还需要人工调用初始化接口。
 - 表结构必须包含 `version`，并由实体继承 `EntityBase.@Version`。
 - 多租户业务表必须包含 `tenant_id`，业务 SQL 不手写租户条件。
@@ -212,23 +212,25 @@ src/main/resources/db/*.sql
 
 数据库业务表默认包含这些公共治理字段。AI 新增表时先写完整字段清单，再补业务字段、索引、唯一约束和初始化数据：
 
+以下为 PostgreSQL 字段片段；中文字段注释另用 `COMMENT ON COLUMN` 写入实际脚本。修改时间由应用填充器维护，不添加 Seata AT 不支持的触发器。
+
 ```sql
-code varchar(255) DEFAULT NULL COMMENT '编码',
-description varchar(255) DEFAULT NULL COMMENT '说明',
-create_date_time datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-create_name varchar(255) DEFAULT NULL COMMENT '创建人',
-modify_date_time datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
-modify_name varchar(255) DEFAULT NULL COMMENT '修改人',
-is_delete bit(1) DEFAULT b'0' COMMENT '删除状态',
-type int DEFAULT '0' COMMENT '类型（0：默认）',
-state int DEFAULT '1' COMMENT '状态（1：启用，2：禁用）',
-label varchar(255) DEFAULT NULL COMMENT '标签',
-sorting int DEFAULT '0' COMMENT '排序',
-version int DEFAULT '1' COMMENT '版本号',
-tenant_id varchar(64) NOT NULL DEFAULT '1' COMMENT '租户id'
+code varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 编码
+description varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 说明
+create_date_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 创建时间
+create_name varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 创建人
+modify_date_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 修改时间
+modify_name varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 修改人
+is_delete boolean DEFAULT false, -- 删除状态
+type int DEFAULT '0', -- 类型（0：默认）
+state int DEFAULT '1', -- 状态（1：启用，2：禁用）
+label varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 标签
+sorting int DEFAULT '0', -- 排序
+version int DEFAULT '1', -- 版本号
+tenant_id varchar(64) COLLATE public.fleet_general_ci NOT NULL -- 租户id
 ```
 
-这些字段中的 `id`、`code`、`description`、`createDateTime`、`createName`、`modifyDateTime`、`modifyName`、`isDelete`、`label`、`sorting`、`version`、`tenantId` 由 `utils` 中的 `com.kellen.bean.EntityBase` 承接。实体默认继承：
+这些字段中的 `id`、`code`、`description`、`createDateTime`、`createName`、`modifyDateTime`、`modifyName`、`isDelete`、`label`、`sorting`、`version`、`tenantId` 由 `utils` 中的 `com.kellen.entity.EntityBase` 承接。实体默认继承：
 
 ```java
 public class Xxx extends EntityBase {
@@ -551,3 +553,5 @@ AI 每次新增模块时必须检查：
 - 是否同步补充或新建项目根目录 `README.md`。
 - 是否同步补充或更新 JUnit 5 测试用例。
 - 是否运行 `./gradlew clean compileJava test`。
+
+个人 XXL-JOB 已退役，不再新增其依赖、配置类或 `xxl-job.yaml` 导入。调度选用 NAS 独立 Conductor OSS，通过 REST 接入；业务 Java 调度接口尚未实现，保持 Java 17，不为此引入要求 Java 21 的最新 SDK。

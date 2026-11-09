@@ -73,7 +73,5 @@ spring:
       - "optional:nacos:seata.yaml?refreshEnabled=true"
       # dubbo.yaml：Dubbo RPC、注册中心和协议配置。
       - "optional:nacos:dubbo.yaml?refreshEnabled=true"
-      # xxl-job.yaml：XXL-JOB 执行器配置。
-      - "optional:nacos:xxl-job.yaml?refreshEnabled=true"
       # a2a.yaml：A2A / Nacos AI Registry 共享契约（agent 名、context-path、tenant、provider-org）；rag 作为 AI 能力注册方引用 ${custom.a2a-*}。
       - "optional:nacos:a2a.yaml?refreshEnabled=true"

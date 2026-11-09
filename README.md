@@ -62,7 +62,7 @@ python3 scripts/verify-rag-engine.py
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com:utils:1.5.5`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
+- 公共能力依赖 `com:utils:1.6.0`，跨服务契约固定 `com:rpc-api:1.0.7`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
 - 个人与公司共用私有 Maven 地址，utils 分别使用 `com` 与 `com.kellen` group 隔离；Java 包名保持 `com.kellen.*`。
 - 测试框架统一使用 JUnit 5
 
@@ -84,7 +84,7 @@ python3 scripts/verify-rag-engine.py
 
 ## 基础设施地址
 
-除 `application.yml` 中连接 Nacos 自身的启动入口外，MySQL、Redis、RabbitMQ、Seata、XXL-JOB、Elasticsearch、Zipkin、Qdrant 等基础设施地址统一放在 Nacos（`reuse-configuration.yaml` 公共变量 / 各中间件 dataId）。业务配置只引用公共变量，不直接散落基础设施 IP。
+除 `application.yml` 中连接 Nacos 自身的启动入口外，PostgreSQL、Redis、RabbitMQ、Seata、Elasticsearch、Zipkin、Qdrant 等基础设施地址统一放在 Nacos（`reuse-configuration.yaml` 公共变量 / 各中间件 dataId）。业务配置只引用公共变量，不直接散落基础设施 IP。
 
 ## Nacos 配置
 
@@ -106,7 +106,6 @@ rabbitmq.yaml
 elasticsearch.yaml
 seata.yaml
 dubbo.yaml
-xxl-job.yaml
 a2a.yaml                # A2A / Nacos AI Registry 共享契约，rag 作为 AI 能力注册方引用 ${custom.a2a-*}
 ```
 
@@ -117,10 +116,10 @@ a2a.yaml                # A2A / Nacos AI Registry 共享契约，rag 作为 AI �
 全新或空业务库首次启动前，必须先在目标业务库手动执行公共基础设施脚本：
 
 ```text
-../utils/src/main/resources/db/common-infra-schema.sql
+../utils/src/main/resources/db/postgresql/common-infra-schema.sql
 ```
 
-该脚本只维护 MyBatis-Plus DDL 记录表 `ddl_history` 和 Seata AT 补偿表 `undo_log`。Seata AT 会在 `DataSource` 初始化时先检查 `undo_log`，不能依赖应用首次启动自动创建。业务 SQL 变更前先查 `ddl_history`；已执行或无法确认的脚本不回改，新增变更使用新 SQL 文件并追加到 `MysqlDdl#getSqlFiles()`。
+该脚本只维护 MyBatis-Plus DDL 记录表 `ddl_history` 和 Seata AT 补偿表 `undo_log`。Seata AT 会在 `DataSource` 初始化时先检查 `undo_log`，不能依赖应用首次启动自动创建。业务 SQL 变更前先查 `ddl_history`；已执行或无法确认的脚本不回改，新增变更使用新 SQL 文件并追加到 `PostgresqlDdl#getSqlFiles()`。
 
 ## 接口文档
 
@@ -162,6 +161,10 @@ bash scripts/check-secrets.sh
 
 ## 本批可观测性接入
 
-当前服务版本为 `1.1.7`，公共能力精确消费 `com:utils:1.5.5`，并由公共包传递引入轻量 `com:fleet-observability:0.1.0` 的安全 HTTP 终态事件。公共制品先完成 Maven Local 验证，再按对应 main 确定提交发布远端；目标环境的实际采集与全链读回单独验收。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
+当前服务版本为 `1.2.0`，公共能力精确消费 `com:utils:1.6.0`，并由公共包传递引入轻量 `com:fleet-observability:0.1.1` 的安全 HTTP 终态事件。公共制品先完成 Maven Local 验证，再按对应 main 确定提交发布远端；目标环境的实际采集与全链读回单独验收。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
 
 Admin/Zipkin 模板与三 profile 的 imports 已退役。服务 JVM 的可选 OTel agent 由统一启动入口负责，不通过全局 JAVA_TOOL_OPTIONS 注入 Gradle 或测试。部署时 Java 指标只由 Micrometer Prometheus 提供，OTEL_METRICS_EXPORTER 与 OTEL_LOGS_EXPORTER 均为 none；监控组件、配置发布和实际采集仍须独立验证。回滚须恢复匹配的制品与配置，先恢复旧 dataId 再回退旧消费者，不能用已删除的配置项假装完成回滚。
+
+个人业务 PostgreSQL 迁移对应服务版本为 `1.2.0`，公共库精确消费 `com:utils:1.6.0`（传递安全采集库 `com:fleet-observability:0.1.1`）。版本和本机构建通过不代表目标环境已切库，正式迁移与运行态验收另行记录。
+
+个人 Java 服务已移除 XXL-JOB 依赖、执行器配置与演示任务，不再读取 `xxl-job.yaml`。Conductor OSS 作为 NAS 独立服务通过 REST 接入；当前未接入业务 Java 调度接口，不添加 Java 21 SDK 或虚构任务开关。其他环境仍使用的 NAS 容器不由本次个人源码退役处理。

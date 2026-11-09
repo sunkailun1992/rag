@@ -23,7 +23,7 @@
 13. 只有明确属于当前微服务业务边界的代码，才按当前项目现有结构创建 Java 文件。
 14. 新增或修改 Controller 时，先按 `PROJECT_CODING_SPEC.md` 的 RESTful 接口规范设计路径和 HTTP 方法。
 15. 新增或修改 Controller 时，补齐 `@Tag`、`@Operation`、必要的 `@Parameter` 和请求/响应对象 `@Schema`，确保 OpenAPI 文档展示业务名称而不是默认方法名。
-16. 涉及 MySQL、Redis、RabbitMQ、Seata、XXL-JOB、Elasticsearch、Kibana、Zipkin 等基础设施地址时，优先读取项目根目录 `README.md` 的基础设施地址约定，不要在业务配置中新增裸 IP。
+16. 涉及 PostgreSQL、Redis、RabbitMQ、Seata、Elasticsearch、Kibana、Zipkin 等基础设施地址时，优先读取项目根目录 `README.md` 的基础设施地址约定，不要在业务配置中新增裸 IP。
 17. 新增或修改 README、AI 规范、配置、脚本、测试、示例和代码时，禁止写入个人电脑绝对路径；目录关系使用相对路径，外部安装位置使用环境变量或 `<PLACEHOLDER>` 占位符。
 18. 代码编写完成后补充或更新 JUnit 5 测试用例；接口功能优先从 Controller 请求层覆盖请求参数、权限、统一响应和 Service 调用，再按风险补充 Service/Mapper 单元测试。
 19. 检查项目根目录 `README.md`，已有内容时补充本次新增或调整的业务说明，缺少文件时新建。
@@ -40,13 +40,13 @@
 
 ## DDL 变更规则
 
-- 修改 `src/main/resources/db/*.sql` 前，先检查 `MysqlDdl#getSqlFiles()` 和数据库 `ddl_history` 的执行记录。
-- 全新或空业务库首次启动前，必须先在目标业务库手动执行 `../utils/src/main/resources/db/common-infra-schema.sql`；Seata AT 会在 `DataSource` 初始化时先检查 `undo_log`，不能依赖 MyBatis-Plus DDL 首次启动自动创建该表。
+- 修改 `src/main/resources/db/postgresql/*.sql` 前，先检查 `PostgresqlDdl#getSqlFiles()` 和数据库 `ddl_history` 的执行记录。
+- 全新或空业务库首次启动前，必须先在目标业务库手动执行 `../utils/src/main/resources/db/postgresql/common-infra-schema.sql`；Seata AT 会在 `DataSource` 初始化时先检查 `undo_log`，不能依赖 MyBatis-Plus DDL 首次启动自动创建该表。
 - 必须连接当前目标数据库查询 `ddl_history`；只有明确确认脚本未执行，才允许修改该脚本。
 - 已发布、已执行、可能已执行、无法确认执行状态的脚本禁止改原文件；原始建表和基础数据脚本一旦执行，后续变更必须新增独立 SQL。
-- 如果 `ddl_history` 已记录某个脚本，或无法连接数据库确认执行状态，后续表结构、默认数据、树状权限资源等变更必须新增独立 SQL 脚本，并按顺序追加到 `MysqlDdl#getSqlFiles()`。
-- 新增 SQL 必须具备重复执行安全性，优先使用 `CREATE TABLE IF NOT EXISTS`、`INSERT IGNORE` 和带租户/主键条件的确定性 `UPDATE`。
-- 新增字段不要默认使用 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`，当前 MySQL 环境可能不支持；需要用 `information_schema.COLUMNS` 判断后配合 `PREPARE/EXECUTE` 动态执行。
+- 如果 `ddl_history` 已记录某个脚本，或无法连接数据库确认执行状态，后续表结构、默认数据、树状权限资源等变更必须新增独立 SQL 脚本，并按顺序追加到 `PostgresqlDdl#getSqlFiles()`。
+- 新增 SQL 必须具备重复执行安全性，优先使用 `CREATE TABLE IF NOT EXISTS`、`INSERT ... ON CONFLICT DO NOTHING` 和带租户/主键条件的确定性 `UPDATE`。
+- PostgreSQL 新增字段使用新的增量脚本；重复执行可使用 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`，但仍须核对既有列类型、默认值和可空性，不能把存在列当成结构一致。
 - AI 生成新业务表时必须按 `PROJECT_CODING_SPEC.md` 的公共治理字段清单补齐 DDL，不得只写业务字段；同步检查 Entity、BO、VO、Query、ServiceQuery、索引、唯一约束和 SQL 注释。
 - 数据库列 `version` 只表示乐观锁；业务版本使用 `*_version` 命名，例如 `template_version`、`prompt_version`、`protocol_version`。
 - 新增需要数据权限控制的业务主表时，默认同时设计 `owner_user_id` 和 `dept_id` 字段，并同步补齐 Entity、BO、VO、Query、ServiceQuery 与 Nacos `security.data-permission.table-rules`。
@@ -137,3 +137,5 @@ bash scripts/check-secrets.sh
 ```
 
 再回到当前项目编译。
+
+个人 XXL-JOB 已退役，不再新增其依赖、配置类或 `xxl-job.yaml` 导入。调度选用 NAS 独立 Conductor OSS，通过 REST 接入；业务 Java 调度接口尚未实现，保持 Java 17，不为此引入要求 Java 21 的最新 SDK。
