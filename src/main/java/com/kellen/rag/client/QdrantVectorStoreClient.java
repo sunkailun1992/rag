@@ -27,7 +27,7 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
     private static final Pattern SAFE_COLLECTION = Pattern.compile("[A-Za-z0-9_-]{1,128}");
     private static final List<String> KEYWORD_INDEX_FIELDS = List.of(
             "tenant_id", "knowledge_base", "document_id", "document_code", "document_status",
-            "file_sha256", "content_sha256"
+            "file_sha256", "content_sha256", "sparse_model"
     );
 
     private final RagVectorProperties properties;

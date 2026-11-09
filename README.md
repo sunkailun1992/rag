@@ -12,6 +12,7 @@
 
 - 开启 `rag.engine.parse-enabled` 后支持 PDF、PNG、JPG/JPEG。文字 PDF 由 pypdf + LlamaIndex 解析，扫描件/图片需另配 PaddleOCR 服务；缺少 OCR 时明确报错。
 - 检索统一调用 Python Engine，失败直接返回现有 RPC 降级结果；旧 Java 查询/重排与迁移开关已移除。Python 可启用 LlamaIndex dense + TF-IDF sparse + RRF 混合召回，须先准备 `lexical-v1` schema、完整回填并启用 Java 双写；运行时逐范围检查索引完整性。
+- Java 确保集合时同时创建 `sparse_model` 的 keyword payload 索引，供逐范围稀疏完整性检查过滤使用。已有集合需显式补建这一派生索引；无需重新上传文档、写入原文或向量、重新抽取图谱，检索过滤与三秒总预算保持。
 - PDF/OCR 保存页码、区块、坐标与全部重复来源 metadata。解析有大小、页数、并发、CPU/内存和总时间限制；不支持任意 URL/文件路径输入。
 - [`evaluation/`](evaluation/README.md) 提供 60 题合成基准、28 篇通用技术语料和 Recall/MRR/nDCG/延迟评估器，不能代替真实样本质量验收。
 - Nacos 唯一模板仍在 `../utils/ops/github-dev/nacos/DEFAULT_GROUP/rag-spring.yaml`；仅 PDF/图片解析的 `rag.engine.parse-enabled` 开关保留且默认关闭；检索和图谱固定使用 Engine/Neo4j，部署前必须配置并验证引擎地址与服务密钥。Java 引擎密钥与 Python 环境变量需一致，不能放在前端或公开 Git；回滚须恢复匹配的制品和配置。
@@ -161,7 +162,7 @@ bash scripts/check-secrets.sh
 
 ## 本批可观测性接入
 
-当前服务版本为 `1.2.2`，公共能力精确消费 `com:utils:1.6.2`，并由公共包传递引入轻量 `com:fleet-observability:0.1.2` 的安全 HTTP 终态事件。公共制品先完成 Maven Local 验证，再按对应 main 确定提交发布远端；目标环境的实际采集与全链读回单独验收。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
+当前服务版本为 `1.2.3`，公共能力精确消费 `com:utils:1.6.2`，并由公共包传递引入轻量 `com:fleet-observability:0.1.2` 的安全 HTTP 终态事件。公共制品先完成 Maven Local 验证，再按对应 main 确定提交发布远端；目标环境的实际采集与全链读回单独验收。九服务共享 `actuator.yaml` 暴露 health/info/prometheus；除 health 外仍要求 `actuatorReq` 运维令牌，空值或错误值失败关闭。`logging.yml` 使用 ECS 固定字段白名单，未知 MDC、原始消息、正文和异常不进入采集结果；OTel agent 标准 `trace_id/span_id` 与业务会话 ID 分开。应用指标带固定 application/environment 标签，禁止动态业务 ID。
 
 Admin/Zipkin 模板与三 profile 的 imports 已退役。服务 JVM 的可选 OTel agent 由统一启动入口负责，不通过全局 JAVA_TOOL_OPTIONS 注入 Gradle 或测试。部署时 Java 指标只由 Micrometer Prometheus 提供，OTEL_METRICS_EXPORTER 与 OTEL_LOGS_EXPORTER 均为 none；监控组件、配置发布和实际采集仍须独立验证。回滚须恢复匹配的制品与配置，先恢复旧 dataId 再回退旧消费者，不能用已删除的配置项假装完成回滚。
 
