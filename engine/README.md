@@ -30,6 +30,8 @@ uv run --frozen uvicorn rag_engine.app:create_app --factory --host 127.0.0.1 --p
 
 契约为 [openapi.json](openapi.json)，由应用生成，使用 `uv run python scripts/export_openapi.py` 更新。该文件与真实应用的 schema 有一致性测试。
 
+Engine `0.2.7` 的图谱提交支持可选不透明 `submissionKey`，按可信tenant/KB持久去重；`GET /v1/graphs/submissions/{submissionKey}?knowledgeBase=...` 用于响应丢失后的只读查回。相同键不同执行输入返回 `GRAPH_SUBMISSION_CONFLICT`/409，已完成或失败的原提交不会自动重跑。新显式重建使用新键；来源、租户、删除fence与单worker发布边界保持。应与Java `1.2.4` 配套使用，新增唯一约束只由新Engine启动建立，不在运行中手工修改现有来源。
+
 | 接口 | 请求 | 返回 |
 |---|---|---|
 | `GET /health` | 无认证，只检查本进程 | `{status:"up"}`，不证明 OCR、模型、Qdrant 可达 |

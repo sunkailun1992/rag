@@ -32,7 +32,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 HTTP_METHODS = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
 )
@@ -45,6 +45,7 @@ HTTP_ROUTES = frozenset(
         "/v1/retrievals",
         "/v1/graphs/builds",
         "/v1/graphs/builds/{buildId}",
+        "/v1/graphs/submissions/{submissionKey}",
         "/v1/graphs/queries",
         "/v1/graphs/deactivations",
         "UNMATCHED",

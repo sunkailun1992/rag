@@ -227,6 +227,50 @@ class GraphEngineContractIntegrationTest {
     }
 
     @Test
+    void shouldForwardSubmissionKeyAndRecoverWithoutReadingVectorSources() throws Exception {
+        String submission = "synthetic-submission-0001";
+        response = mapper.writeValueAsString(build());
+        service.sync("kb-1", submission);
+        assertThat(mapper.readTree(requestBody).path("submissionKey").asText()).isEqualTo(submission);
+        assertThat(tenantHeader).isEqualTo(tenant);
+        org.mockito.Mockito.clearInvocations(vectors);
+        assertThat(service.submission(submission, "kb-1").buildId()).isEqualTo("build-1");
+        assertThat(requestMethod).isEqualTo("GET");
+        assertThat(requestUri).isEqualTo("/v1/graphs/submissions/" + submission + "?knowledgeBase=kb-1");
+        verifyNoInteractions(vectors);
+        status = 404;
+        response = "{\"error\":{\"code\":\"GRAPH_BUILD_NOT_FOUND\"}}";
+        assertThat(service.submission(submission, "kb-1")).isNull();
+        status = 409;
+        response = "{\"error\":{\"code\":\"GRAPH_SUBMISSION_CONFLICT\"}}";
+        assertThatThrownBy(() -> service.sync("kb-1", submission))
+                .isInstanceOf(com.kellen.rag.exception.GraphSubmissionConflictException.class);
+    }
+
+    @Test
+    void shouldReuseUploadSubmissionOnlyForTheSameActiveDocumentRevision() throws Exception {
+        response = mapper.writeValueAsString(build());
+        service.syncDocument("doc-1");
+        String original = mapper.readTree(requestBody).path("submissionKey").asText();
+        assertThat(original).matches("upload_[0-9a-f]{64}");
+        service.syncDocument("doc-1");
+        assertThat(mapper.readTree(requestBody).path("submissionKey").asText()).isEqualTo(original);
+        Map<String, Object> changed = new LinkedHashMap<>(point().payload());
+        changed.put("document_revision", 6_000_000_002L);
+        when(vectors.scrollPayload(anyMap(), anyInt(), anySet()))
+                .thenReturn(List.of(new StoredVectorPoint("point-1", changed, 0)));
+        service.syncDocument("doc-1");
+        assertThat(mapper.readTree(requestBody).path("submissionKey").asText()).isNotEqualTo(original);
+        int before = requests.get();
+        assertThatThrownBy(() -> service.sync("kb-1", "invalid/key"))
+                .isInstanceOf(IllegalArgumentException.class);
+        TenantContextHolder.clear();
+        assertThatThrownBy(() -> service.submission("synthetic-submission-0001", "kb-1"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(requests.get()).isEqualTo(before);
+    }
+
+    @Test
     void shouldRejectIncompleteOversizedAndCrossTenantSnapshotsBeforeGraphRequest() {
         when(vectors.count(anyMap())).thenReturn(10001L);
         assertThatThrownBy(() -> service.sync("kb-1")).isInstanceOf(IllegalStateException.class);

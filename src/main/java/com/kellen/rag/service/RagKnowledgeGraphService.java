@@ -14,6 +14,12 @@ public interface RagKnowledgeGraphService {
 
     RagGraphSyncVO sync(String knowledgeBase);
 
+    /** 同一次提交重试复用不透明键；省略时保留既有的显式重建语义。 */
+    RagGraphSyncVO sync(String knowledgeBase, String submissionKey);
+
+    /** 只读查回当前租户、知识库内的原提交；不存在时返回空。 */
+    GraphBuildVO submission(String submissionKey, String knowledgeBase);
+
     RagGraphSyncVO syncDocument(String documentId);
 
     void deactivateDocument(String documentId);

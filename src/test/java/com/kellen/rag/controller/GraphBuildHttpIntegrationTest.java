@@ -61,7 +61,7 @@ class GraphBuildHttpIntegrationTest {
     static class TestApplication {
         @Bean
         SecurityFilterChain security(HttpSecurity http) throws Exception {
-            return http.authorizeHttpRequests(request -> request.anyRequest().authenticated())
+            return http.csrf(csrf -> csrf.disable()).authorizeHttpRequests(request -> request.anyRequest().authenticated())
                     .httpBasic(Customizer.withDefaults()).build();
         }
 
@@ -106,10 +106,25 @@ class GraphBuildHttpIntegrationTest {
         verifyNoInteractions(graphs);
     }
 
+    @Test
+    void shouldProtectScopedSubmissionRecoveryRoute() throws Exception {
+        String path = "/api/rag/graphs/submissions/synthetic-submission-0001?knowledgeBase=kb-1";
+        assertThat(get(path, null).statusCode()).isEqualTo(401);
+        assertThat(get(path, "unrelated").statusCode()).isEqualTo(403);
+        var missing = get(path, "manager");
+        assertThat(missing.statusCode()).isEqualTo(200);
+        // ApiResponse空值字段可能按全局序列化配置省略；两种都表示无任务，不伪造build。
+        var data = mapper.readTree(missing.body()).path("data");
+        assertThat(data.isNull() || data.isMissingNode()).isTrue();
+    }
+
     private HttpResponse<String> get(String path, String user) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).GET();
-        if (user != null) request.header("Authorization", "Basic " + Base64.getEncoder()
-                .encodeToString((user + ":" + SECRET).getBytes(StandardCharsets.UTF_8)));
+        if (user != null) request.header("Authorization", basic(user));
         return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    static String basic(String user) {
+        return "Basic " + Base64.getEncoder().encodeToString((user + ":" + SECRET).getBytes(StandardCharsets.UTF_8));
     }
 }

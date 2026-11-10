@@ -290,6 +290,10 @@ class GraphManager:
     async def submit(self, tenant, request):
         # 身份先检验，再入持久队列。等待和后台构建不能当作完成回执。
         async with asyncio.timeout(self.settings.graph_query_timeout_seconds):
+            if request.submissionKey:
+                replay = await self.repository.replay_submission(tenant, request)
+                if replay is not None:
+                    return replay
             await read_active_sources(
                 request.activeSources, tenant, request.knowledgeBase, self.settings, self.client
             )

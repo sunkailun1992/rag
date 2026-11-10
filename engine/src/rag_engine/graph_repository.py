@@ -1,10 +1,12 @@
 """Neo4j 持久任务、租约与原子发布；只执行应用内固定 Cypher。"""
 
+import asyncio
 import json
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 
 from neo4j import AsyncGraphDatabase, Query
+from neo4j.exceptions import Neo4jError
 
 from rag_engine.errors import EngineError
 from rag_engine.graph_models import GraphBuild, GraphBuildRequest
@@ -17,6 +19,21 @@ def now_iso() -> str:
 
 def build_view(row: dict) -> GraphBuild:
     return GraphBuild(**{key: row.get(key) for key in GraphBuild.model_fields if key in row})
+
+
+def submission_fingerprint(request: GraphBuildRequest) -> str:
+    """只对执行输入的规范身份计算摘要；来源顺序和提交键不改变输入语义。"""
+    payload = request.model_dump(mode="json", exclude={"submissionKey"})
+    payload["activeSources"] = sorted(payload["activeSources"], key=lambda item: item["pointId"])
+    return digest(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def replay_view(job: dict | None, request: GraphBuildRequest) -> GraphBuild | None:
+    if job is None:
+        return None
+    if job.get("submissionFingerprint") != submission_fingerprint(request):
+        raise EngineError("GRAPH_SUBMISSION_CONFLICT", 409)
+    return build_view(job)
 
 
 def publication_is_current(*, sequence: int, reconcile: bool, latest_reconcile_sequence: int) -> bool:
@@ -94,6 +111,7 @@ class GraphRepository:
             ("RagGraphDocument", "key"),
             ("RagGraphBarrier", "key"),
             ("RagGraphJob", "buildId"),
+            ("RagGraphJob", "submissionScope"),
             ("__Node__", "id"),
         ]:
             await self.rows(f"CREATE CONSTRAINT IF NOT EXISTS FOR (n:{label}) REQUIRE n.{key} IS UNIQUE")
@@ -147,6 +165,22 @@ class GraphRepository:
             await self.driver.close()
 
     async def submit(self, tenant: str, request: GraphBuildRequest, build_id: str) -> GraphBuild:
+        """只重试数据库明确已中止的死锁；同一总预算内复用所有提交身份。"""
+        async with asyncio.timeout(self.settings.graph_query_timeout_seconds):
+            for attempt in range(3):
+                try:
+                    return await self._submit_once(tenant, request, build_id)
+                except Neo4jError as error:
+                    if (
+                        not request.submissionKey
+                        or attempt == 2
+                        or error.code != "Neo.TransientError.Transaction.DeadlockDetected"
+                    ):
+                        raise
+                    # transaction上下文已结束并回滚；未知commit、连接错误及其它TransientError不进入重试。
+                    await asyncio.sleep(0.02 * (attempt + 1))
+
+    async def _submit_once(self, tenant: str, request: GraphBuildRequest, build_id: str) -> GraphBuild:
         documents = {}
         for source in request.activeSources:
             documents[source.documentId] = {
@@ -158,6 +192,24 @@ class GraphRepository:
             }
         async with self.transaction() as tx:
             await self.lock(tx)
+            scope = (
+                digest(tenant, request.knowledgeBase, request.submissionKey)
+                if request.submissionKey
+                else None
+            )
+            if scope:
+                existing = await (
+                    await tx.run(
+                        "MATCH (j:RagGraphJob {submissionScope:$scope,tenant:$tenant,knowledgeBase:$kb}) "
+                        "RETURN properties(j) AS job",
+                        scope=scope,
+                        tenant=tenant,
+                        kb=request.knowledgeBase,
+                    )
+                ).single()
+                replay = replay_view(existing["job"] if existing else None, request)
+                if replay is not None:
+                    return replay
             serial = await (
                 await tx.run(
                     "MATCH (r:RagGraphRuntime {key:'worker',owner:$owner}) "
@@ -235,7 +287,9 @@ class GraphRepository:
                     "CREATE (j:RagGraphJob {buildId:$build,tenant:$tenant,knowledgeBase:$kb,status:'QUEUED',"
                     "documentCount:$count,processedDocumentCount:0,nodeCount:0,edgeCount:0,"
                     "createdAt:$updated,updatedAt:$updated,deadline:timestamp()+$budget,sequence:$sequence,"
-                    "requestJson:$request,documentsJson:$documents}) RETURN properties(j) AS job",
+                    "requestJson:$request,documentsJson:$documents}) "
+                    "SET j.submissionScope=$scope,j.submissionFingerprint=$fingerprint "
+                    "RETURN properties(j) AS job",
                     build=build_id,
                     tenant=tenant,
                     kb=request.knowledgeBase,
@@ -245,9 +299,37 @@ class GraphRepository:
                     sequence=sequence,
                     request=request.model_dump_json(),
                     documents=json.dumps(stored_documents),
+                    scope=scope,
+                    fingerprint=submission_fingerprint(request) if scope else None,
                 )
             ).single()
             return build_view(row["job"])
+
+    async def replay_submission(self, tenant: str, request: GraphBuildRequest) -> GraphBuild | None:
+        """重放不依赖当前来源仍活动；原任务的终态及授权范围保持不变。"""
+        if not request.submissionKey:
+            return None
+        rows = await self.rows(
+            "MATCH (j:RagGraphJob {submissionScope:$scope,tenant:$tenant,knowledgeBase:$kb}) "
+            "RETURN properties(j) AS job",
+            scope=digest(tenant, request.knowledgeBase, request.submissionKey),
+            tenant=tenant,
+            kb=request.knowledgeBase,
+        )
+        return replay_view(rows[0]["job"] if rows else None, request)
+
+    async def submission_status(self, tenant: str, kb: str, key: str) -> GraphBuild:
+        """按可信租户、知识库与不透明键查回，不读取或恢复来源内容。"""
+        rows = await self.rows(
+            "MATCH (j:RagGraphJob {submissionScope:$scope,tenant:$tenant,knowledgeBase:$kb}) "
+            "RETURN properties(j) AS job",
+            scope=digest(tenant, kb, key),
+            tenant=tenant,
+            kb=kb,
+        )
+        if not rows:
+            raise EngineError("GRAPH_BUILD_NOT_FOUND", 404)
+        return build_view(rows[0]["job"])
 
     async def claim(self) -> dict | None:
         async with self.transaction() as tx:

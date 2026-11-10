@@ -915,6 +915,159 @@
           }
         ]
       }
+    },
+    "/v1/graphs/submissions/{submissionKey}": {
+      "get": {
+        "summary": "Graph Submission",
+        "operationId": "graph_submission_v1_graphs_submissions__submissionKey__get",
+        "parameters": [
+          {
+            "name": "submissionKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Submissionkey"
+            }
+          },
+          {
+            "name": "knowledgeBase",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Knowledgebase"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "description": "来自 Java 已验证身份的当前租户，不能使用前端任意传值。",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphBuild"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ServiceBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1125,6 +1278,18 @@
                 "type": "null"
               }
             ]
+          },
+          "submissionKey": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{16,128}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submissionkey"
           }
         },
         "additionalProperties": false,

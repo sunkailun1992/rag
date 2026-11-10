@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -46,8 +47,18 @@ public class RagKnowledgeGraphController {
     @PostMapping("/sync")
     @PreAuthorize("hasAuthority('rag:graph:manage')")
     @Operation(summary = "同步知识图谱", description = "从当前租户活动向量切片幂等生成节点和关系")
-    public ApiResponse<RagGraphSyncVO> sync(@RequestParam(required = false) String knowledgeBase) {
-        return ApiResponse.success(graphService.sync(knowledgeBase));
+    public ApiResponse<RagGraphSyncVO> sync(@RequestParam(required = false) String knowledgeBase,
+            @RequestHeader(value = "X-Graph-Submission-Key", required = false) String submissionKey) {
+        return ApiResponse.success(submissionKey == null ? graphService.sync(knowledgeBase)
+                : graphService.sync(knowledgeBase, submissionKey));
+    }
+
+    @GetMapping("/submissions/{submissionKey}")
+    @PreAuthorize("hasAnyAuthority('rag:graph:view', 'rag:graph:manage')")
+    @Operation(summary = "查回图谱提交", description = "按不透明键只读查回当前租户和知识库的原任务，未找到时返回空")
+    public ApiResponse<GraphBuildVO> submission(@PathVariable String submissionKey,
+                                               @RequestParam String knowledgeBase) {
+        return ApiResponse.success(graphService.submission(submissionKey, knowledgeBase));
     }
 
     @GetMapping("/builds/{id}")

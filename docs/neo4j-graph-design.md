@@ -10,6 +10,12 @@
 
 图谱抽取是异步派生任务，上传向量成功不等于图谱完成；图谱失败不撤销已经验证的活动向量。任务状态为 QUEUED、RUNNING、SUCCEEDED、FAILED、CANCELLED。状态存入 Neo4j，重启中断任务须明确失败，支持重试；禁止把任务接收当完成。
 
+提交重放使用可选不透明 `submissionKey`；可信租户、知识库和键的摘要作为 `RagGraphJob.submissionScope` 唯一约束，执行输入使用排序后的来源身份、reconcile及restore fence计算固定摘要。事务先核租约并查原提交，再推进sequence、队列和barrier。相同键/输入返回原任务当前状态，不延长deadline；不同输入明确冲突。按键GET查回仅返回现有安全任务VO，不读来源、排队或调用模型。重启清理requestJson后仍保留提交摘要与任务身份。
+
+提交事务仅对 `Neo.TransientError.Transaction.DeadlockDetected` 明确已被数据库中止的情况最多尝试三次（含首次），复用同一buildId、键和输入；短退避与全部尝试共用原提交总预算。未知commit、断连、其它TransientError均不重试。来源校验、模型抽取和发布逻辑不进入此重试循环。依据为 [Neo4j死锁与有限重试说明](https://neo4j.com/docs/operations-manual/current/database-internals/concurrent-data-access/#deadlocks)。
+
+运行 `tests/test_graph_submission_neo4j_live.py` 时，需显式提供 `RAG_GRAPH_SUBMISSION_NEO4J_{URL,USERNAME,PASSWORD,DATABASE}`；测试I/O把固定label、索引与约束名全部改为每例随机 `GraphSubmissionTest_*` 前缀，执行真实提交事务但不占用实际worker、不访问Qdrant或模型。只清理本例精确标签与schema。并发、队列满重放、输入冲突与新worker恢复分别验证；这不等于真实来源抽取或部署验收。回滚须先检查未完成任务，保留提交身份，不能让不识别新requestJson字段的旧Engine直接领取新任务；不删除任务或schema来绕过版本兼容。
+
 Java 生成最多 10000 条活动切片身份快照，Python 仅按快照读取 Qdrant，并逐项复核 tenant、KB、documentId、version、revision、chunkId 和 contentSha256。来源内容不由浏览器传入图引擎。全量范围超限整次拒绝，不得截断后清理。
 
 Neo4j路径的Java快照使用Qdrant payload selector，仅读取tenant/KB/ACTIVE及七项来源身份需要的9个字段；点ID仍取顶层id。完整count/scroll/count、重复检查与查询前后身份比较保留。旧MySQL投影已删除，Java不再为图谱下载全文。Python仍自行回读并校验原文，不以Java提供的哈希代替正文指纹核对。

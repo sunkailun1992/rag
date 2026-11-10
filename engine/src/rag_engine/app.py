@@ -293,6 +293,16 @@ def create_app(
             graph_manager().repository.status(request.state.tenant, knowledgeBase, buildId)
         )
 
+    @app.get("/v1/graphs/submissions/{submissionKey}", response_model=GraphBuild)
+    async def graph_submission(submissionKey: str, knowledgeBase: str, request: Request):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", submissionKey) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{1,64}", knowledgeBase
+        ):
+            raise EngineError("INVALID_REQUEST", 422)
+        return await graph_operation(
+            graph_manager().repository.submission_status(request.state.tenant, knowledgeBase, submissionKey)
+        )
+
     def contract_schema():
         if app.openapi_schema is None:
             schema = get_openapi(title=app.title, version=app.version, routes=app.routes)

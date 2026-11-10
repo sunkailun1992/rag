@@ -1,6 +1,8 @@
 package com.kellen.bean;
 
 import com.kellen.rag.exception.ExternalServiceException;
+import com.kellen.rag.exception.GraphSubmissionConflictException;
+import com.kellen.rag.exception.GraphSubmissionInvalidException;
 import com.kellen.utils.enumeration.ReturnCode;
 import com.kellen.utils.exception.ApiExceptionHandler;
 import com.kellen.utils.response.ApiResponse;
@@ -21,6 +23,18 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ApiExceptionHandler {
+
+    @ExceptionHandler(GraphSubmissionInvalidException.class)
+    public ResponseEntity<ApiResponse<Void>> graphSubmissionInvalid(GraphSubmissionInvalidException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(ReturnCode.用户请求参数错误, exception.getMessage()));
+    }
+
+    @ExceptionHandler(GraphSubmissionConflictException.class)
+    public ResponseEntity<ApiResponse<Void>> graphSubmissionConflict(GraphSubmissionConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(ReturnCode.用户请求参数错误, exception.getMessage()));
+    }
 
     /** JSON 语法或请求体类型绑定失败属于客户端错误，不记录可能携带正文的异常消息和堆栈。 */
     @ExceptionHandler(HttpMessageNotReadableException.class)

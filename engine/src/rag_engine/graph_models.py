@@ -49,6 +49,7 @@ class GraphRestoreFence(Contract):
 class GraphBuildRequest(GraphSourcesRequest):
     reconcile: bool = False
     restoreFence: GraphRestoreFence | None = None
+    submissionKey: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{16,128}$")
 
     @model_validator(mode="after")
     def restore_is_one_target_document(self):

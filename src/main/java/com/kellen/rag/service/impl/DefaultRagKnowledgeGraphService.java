@@ -10,6 +10,7 @@ import com.kellen.rag.entity.vo.GraphBuildVO;
 import com.kellen.rag.model.ActiveGraphSource;
 import com.kellen.rag.model.GraphRemovalFence;
 import com.kellen.rag.exception.ExternalServiceException;
+import com.kellen.rag.exception.GraphSubmissionInvalidException;
 import com.kellen.rag.model.KnowledgeGraphViewMode;
 import com.kellen.rag.model.StoredVectorPoint;
 import com.kellen.rag.service.RagKnowledgeGraphService;
@@ -51,9 +52,26 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
 
     @Override
     public RagGraphSyncVO sync(String knowledgeBase) {
+        return sync(knowledgeBase, null);
+    }
+
+    @Override
+    public RagGraphSyncVO sync(String knowledgeBase, String submissionKey) {
         String tenantId = requireTenant();
         String base = safeCode(knowledgeBase, properties.getDefaultKnowledgeBase());
-        return RagGraphSyncVO.fromBuild(engine.buildGraph(base, snapshot(tenantId, base, null).sources(), true));
+        if (submissionKey == null) {
+            return RagGraphSyncVO.fromBuild(engine.buildGraph(base, snapshot(tenantId, base, null).sources(), true));
+        }
+        requireSubmissionKey(submissionKey);
+        return RagGraphSyncVO.fromBuild(engine.buildGraph(base, snapshot(tenantId, base, null).sources(),
+                true, null, submissionKey));
+    }
+
+    @Override
+    public GraphBuildVO submission(String submissionKey, String knowledgeBase) {
+        requireTenant();
+        requireSubmissionKey(submissionKey);
+        return engine.graphSubmission(submissionKey, safeCode(knowledgeBase, properties.getDefaultKnowledgeBase()));
     }
 
     @Override
@@ -65,7 +83,24 @@ public class DefaultRagKnowledgeGraphService implements RagKnowledgeGraphService
             deactivateDocumentWithFence(id);
             return new RagGraphSyncVO("", 0, 0, 0, null, "SUCCEEDED");
         }
-        return RagGraphSyncVO.fromBuild(engine.buildGraph(snapshot.knowledgeBase(), snapshot.sources(), false));
+        // 相同活动版本的重复上传复用同一次派生构建；新的明确重建仍由手动同步新键表达。
+        String identity = tenantId + "\n" + snapshot.knowledgeBase() + "\n" + snapshot.sources().stream()
+                .sorted(java.util.Comparator.comparing(ActiveGraphSource::pointId)).toList();
+        String submissionKey;
+        try {
+            submissionKey = "upload_" + java.util.HexFormat.of().formatHex(java.security.MessageDigest
+                    .getInstance("SHA-256").digest(identity.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 unavailable", exception);
+        }
+        return RagGraphSyncVO.fromBuild(engine.buildGraph(snapshot.knowledgeBase(), snapshot.sources(), false,
+                null, submissionKey));
+    }
+
+    private void requireSubmissionKey(String key) {
+        if (!key.matches("[A-Za-z0-9_-]{16,128}")) {
+            throw new GraphSubmissionInvalidException();
+        }
     }
 
     @Override

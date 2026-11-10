@@ -3,6 +3,7 @@ package com.kellen.rag.client;
 import com.kellen.rag.config.RagEngineProperties;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.exception.ExternalServiceException;
+import com.kellen.rag.exception.GraphSubmissionConflictException;
 import com.kellen.rag.model.KnowledgeChunkDraft;
 import com.kellen.rag.model.ParsedKnowledgeDocument;
 import com.kellen.rag.model.VectorSearchHit;
@@ -67,13 +68,31 @@ public class RagEngineClient {
     /** 补偿票据只能由删除失败链路提供，不属于公开同步协议。 */
     public GraphBuildVO buildGraph(String knowledgeBase, List<ActiveGraphSource> sources, boolean reconcile,
                                     GraphRemovalFence fence) {
+        return buildGraph(knowledgeBase, sources, reconcile, fence, null);
+    }
+
+    /** 提交键仅由 Java 校验后的调用意图提供，不接受它覆盖租户或来源。 */
+    public GraphBuildVO buildGraph(String knowledgeBase, List<ActiveGraphSource> sources, boolean reconcile,
+                                  GraphRemovalFence fence, String submissionKey) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("knowledgeBase", knowledgeBase);
         body.put("activeSources", sources);
         body.put("reconcile", reconcile);
         if (fence != null) body.put("restoreFence", fence);
+        if (submissionKey != null) body.put("submissionKey", submissionKey);
         JsonNode result = request("/v1/graphs/builds", body, graphTimeout());
         return GraphEngineResponseValidator.build(result, requireTenant(), knowledgeBase);
+    }
+
+    /** 查回不触发来源读取、排队或模型；404只在本查询中表达未找到。 */
+    public GraphBuildVO graphSubmission(String submissionKey, String knowledgeBase) {
+        if (submissionKey == null || !submissionKey.matches("[A-Za-z0-9_-]{16,128}")
+                || knowledgeBase == null || !knowledgeBase.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new IllegalArgumentException("图谱提交或知识库编码不合法");
+        }
+        JsonNode result = request("GET", "/v1/graphs/submissions/" + submissionKey + "?knowledgeBase=" + knowledgeBase,
+                null, bounded(properties.getGraphStatusTimeoutMillis(), 100, 30000));
+        return result == null ? null : GraphEngineResponseValidator.build(result, requireTenant(), knowledgeBase);
     }
 
     /** 查询只接受 Java 已授权的活动来源，响应逐源重新校验，丢弃未知属性。 */
@@ -239,12 +258,21 @@ public class RagEngineClient {
                     1024, 32 * 1024 * 1024)));
             HttpResponse<byte[]> response = pending.get(timeoutMillis, TimeUnit.MILLISECONDS);
             if (response.statusCode() != 200) {
+                if (response.statusCode() == 404 && method.equals("GET")
+                        && path.startsWith("/v1/graphs/submissions/")) return null;
+                if (response.statusCode() == 409 && path.equals("/v1/graphs/builds")
+                        && mapper.readTree(response.body()).path("error").path("code").asText()
+                        .equals("GRAPH_SUBMISSION_CONFLICT")) {
+                    throw new GraphSubmissionConflictException();
+                }
                 if (path.equals("/v1/parses") && Set.of(400, 413, 422).contains(response.statusCode())) {
                     throw new IllegalArgumentException("PDF/图片无法解析或超过限制，请检查文件格式、页数及大小");
                 }
                 throw ExternalServiceException.httpFailure("RAG engine", response.statusCode());
             }
             return mapper.readTree(response.body());
+        } catch (GraphSubmissionConflictException exception) {
+            throw exception;
         } catch (ExternalServiceException exception) {
             throw exception;
         } catch (IllegalArgumentException exception) {
