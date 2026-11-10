@@ -23,7 +23,7 @@ from rag_engine.graph_query import aggregate_graph
 from rag_engine.graph_repository import GraphRepository
 from rag_engine.graph_sources import evidence_excerpt, read_active_sources
 from rag_engine.graph_worker import safe_worker_diagnostic, sanitize_worker_diagnostic
-from rag_engine.observability import Observability, failure_result, stage
+from rag_engine.observability import WORKER_FAILURE_CLASSES, Observability, failure_result, stage
 
 logger = logging.getLogger("rag_engine.graph")
 
@@ -171,6 +171,7 @@ class GraphManager:
         self.owner = str(uuid.uuid4())
         self.repository = repository or GraphRepository(settings, self.owner)
         self.tasks = []
+        self._started = False
         self.observability = observability or Observability(settings)
         self.submission_contexts = {}
         self.repository.on_terminal = self.report_terminal
@@ -185,11 +186,21 @@ class GraphManager:
         ):
             observed.result = result
 
+    def is_ready(self):
+        return (
+            self._started
+            and len(self.tasks) == 2
+            and all(not task.done() and not task.cancelling() for task in self.tasks)
+        )
+
     async def start(self):
+        self._started = False
         await self.repository.start()
         self.tasks = [asyncio.create_task(self.heartbeat()), asyncio.create_task(self.pump())]
+        self._started = True
 
     async def stop(self):
+        self._started = False
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
@@ -202,8 +213,15 @@ class GraphManager:
                 await self.repository.heartbeat()
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.warning("rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST")
+        except Exception as error:
+            self._started = False
+            failure_class = type(error).__name__
+            if failure_class not in WORKER_FAILURE_CLASSES:
+                failure_class = "UnexpectedError"
+            logger.error(
+                "rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST",
+                extra={"failure_class": failure_class},
+            )
             # 租约失效立即取消构建子进程；发布事务另有 owner/lease fencing。
             for task in self.tasks:
                 if task is not asyncio.current_task():
@@ -297,6 +315,9 @@ class GraphManager:
             await read_active_sources(
                 request.activeSources, tenant, request.knowledgeBase, self.settings, self.client
             )
+            # 来源读取期间也可能失去 worker；仍有剩余 DB lease 不代表调度 task 活跃。
+            if not self.is_ready():
+                raise EngineError("GRAPH_WORKER_UNAVAILABLE", 503)
             result = await self.repository.submit(tenant, request, str(uuid.uuid4()))
             context = trace.get_current_span().get_span_context()
             if context.is_valid and result.status in {"QUEUED", "RUNNING"}:

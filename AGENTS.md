@@ -67,7 +67,7 @@
 - 新增知识库、切片、向量任务或模型配置业务表时，必须按 `docs/ai-coding/PROJECT_CODING_SPEC.md` 补齐公共治理字段；`version` 只做乐观锁，业务版本使用 `*_version` 命名。
 - 公共响应、认证上下文、多租户、错误码和工具能力优先复用 `../utils`；跨服务 Dubbo 契约复用 `../rpc-api`，不在本服务复制契约。
 - 新增本服务 OpenAPI 入口、调整服务前缀，或需要经网关访问时，必须同步检查 `../gateway` 的 Nacos `gateway-spring.yaml`，并验证对应网关文档路径与 `/swagger-ui/index.html`。
-- `application.yml` 只保留本地兜底配置；真实模型密钥、向量库密钥、数据库密码必须放 Nacos，模板只提交占位符。
+- `application.yml` 只保留本地兜底配置；上游模型 provider 凭据由 LiteLLM 原生控制台管理，Java/Engine 各自仅从私有 OS 输入持有最小 scope virtual key；Qdrant、数据库等基础设施凭据仍由 Nacos 管理，Git 模板只提交占位符。源码接线不代表运行态已迁移，具体临时直连例外仅记私有运行回执。
 
 ## AI 工程门禁
 

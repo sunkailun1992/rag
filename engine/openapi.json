@@ -36,6 +36,9 @@
                 "schema": {}
               }
             }
+          },
+          "503": {
+            "description": "Graph worker is unavailable"
           }
         }
       }

@@ -33,7 +33,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.2.9"
+VERSION = "0.3.0"
 HTTP_METHODS = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
 )
@@ -76,6 +76,18 @@ _LOG_EXPORTING = contextvars.ContextVar("rag_log_exporting", default=False)
 _RUNTIME_FILTERED = object()
 logger = logging.getLogger("rag_engine.events")
 _SERVICE_ENVIRONMENT = "github-dev"
+WORKER_FAILURE_CLASSES = frozenset(
+    {
+        "EngineError",
+        "TimeoutError",
+        "ServiceUnavailable",
+        "SessionExpired",
+        "TransientError",
+        "ClientError",
+        "DatabaseError",
+        "UnexpectedError",
+    }
+)
 
 
 SAFE_TEMPLATES = frozenset(
@@ -323,6 +335,14 @@ class SafeRuntimeLog(logging.Filter):
             "event": "rag_diagnostic",
             "diagnostic": diagnostic,
         }
+        failure_class = getattr(record, "failure_class", None)
+        if (
+            trusted
+            and template == "rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST"
+            and type(failure_class) is str
+            and failure_class in WORKER_FAILURE_CLASSES
+        ):
+            value["failure_class"] = failure_class
         record._rag_runtime_filtered = _RUNTIME_FILTERED
         record._rag_safe_json = True
         record.msg, record.args = json.dumps(value, separators=(",", ":")), ()
@@ -332,7 +352,7 @@ class SafeRuntimeLog(logging.Filter):
                 code = diagnostic_code(template, arguments)
                 observation = _CURRENT.get() or (self.observation() if self.observation else None)
                 if code is not None and observation is not None:
-                    observation._export_diagnostic(code, record.levelno)
+                    observation._export_diagnostic(code, record.levelno, value.get("failure_class"))
             except Exception:
                 # 不改变应用日志/请求结果，不用另一条日志报告日志导出失败。
                 pass
@@ -616,7 +636,7 @@ class Observability:
                 except Exception:
                     pass
 
-    def _export_diagnostic(self, code, level):
+    def _export_diagnostic(self, code, level, failure_class=None):
         if (
             self._diagnostic_closed
             or self.event_logger is None
@@ -630,6 +650,12 @@ class Observability:
             "error_code": code,
             "error_type": "timeout" if code.endswith("_TIMEOUT") else "server",
         }
+        if (
+            code == "GRAPH_WORKER_LEASE_LOST"
+            and type(failure_class) is str
+            and failure_class in WORKER_FAILURE_CLASSES
+        ):
+            attributes["failure_class"] = failure_class
         context = trace.get_current_span().get_span_context()
         if context.is_valid:
             attributes.update(trace_id=f"{context.trace_id:032x}", span_id=f"{context.span_id:016x}")

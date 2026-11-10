@@ -46,6 +46,9 @@ def test_submission_key_is_accepted_and_readback_is_authenticated_and_tenant_sco
     class Manager:
         repository = Repository()
 
+        def is_ready(self):
+            return True
+
         async def stop(self):
             pass
 

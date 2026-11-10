@@ -189,8 +189,10 @@ def create_app(
             headers={"Content-Type": CONTENT_TYPE_LATEST, "Cache-Control": "no-store"},
         )
 
-    @app.get("/health")
+    @app.get("/health", responses={503: {"description": "Graph worker is unavailable"}})
     async def health():
+        if settings.graph_enabled and (app.state.graph is None or not app.state.graph.is_ready()):
+            return JSONResponse({"status": "down"}, status_code=503, headers={"Cache-Control": "no-store"})
         return {"status": "up"}
 
     @app.get("/v1/openapi.json", include_in_schema=False)
@@ -252,6 +254,8 @@ def create_app(
     def graph_manager():
         if app.state.graph is None:
             raise EngineError("GRAPH_NOT_CONFIGURED", 503)
+        if not app.state.graph.is_ready():
+            raise EngineError("GRAPH_WORKER_UNAVAILABLE", 503)
         return app.state.graph
 
     async def graph_operation(operation):

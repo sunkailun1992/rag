@@ -2,7 +2,9 @@
 
 `rag` 是 RAG 知识检索服务后端微服务。
 
-当前 Java 版本为 `1.2.6`，Engine 保持 `0.2.9`。三个 profile 不再导入只提供 Google 凭据与模型名的 `ai-model-secrets.yaml`：Java RAG 使用 `rag.vector.*`，不创建 Google 模型。移除无关导入不改变 embedding 模型、维度、Engine 环境变量或其它 Nacos 导入；已运行进程须受控重启新制品后再核对，源码变更不代表旧进程已卸载凭据。
+当前 Java 版本为 `1.2.6`，Engine 为 `0.3.0`。本批修复图 worker 已失活但健康检查仍成功的缺口：图谱开启时，只有启动成功且 heartbeat/pump 两任务仍运行才健康；失租保持 fail-stop，健康与图谱入站返回503，不自动重拿租约。源码与离线测试不表示已部署或恢复实际 worker。
+
+三个 profile 不再导入只提供 Google 凭据与模型名的 `ai-model-secrets.yaml`：Java RAG 使用 `rag.vector.*`，不创建 Google 模型。移除无关导入不改变 embedding 模型、维度、Engine 环境变量或其它 Nacos 导入；已运行进程须受控重启新制品后再核对，源码变更不代表旧进程已卸载凭据。
 
 Java `1.2.5` / Engine `0.2.9` 增加显式 rerank 端点与 DashScope/Cohere wire 选择，可对接 LiteLLM 的完整 `/v1/rerank`；未配置新参数时保留旧路径派生。Java/Python 均严格拒绝缺失或冲突的 embedding 索引及非法向量，整份摄取不返回部分批次。物理模型、1024维默认、缓存/提取/图谱规则保持；接入参数和真实切流边界见[Engine配置](engine/README.md#启动)，源码测试不表示NAS已切换。
 

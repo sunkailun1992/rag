@@ -563,6 +563,9 @@ def test_graph_api_preserves_trusted_scope_and_async_status_contract(settings):
     class Manager:
         repository = Repository()
 
+        def is_ready(self):
+            return True
+
         async def submit(self, tenant, request):
             calls.append(("submit", tenant, request.knowledgeBase))
             return build

@@ -211,6 +211,8 @@ async def test_parent_build_terminal_span_and_metric_with_submission_link(settin
     monkeypatch.setattr(graph_jobs, "run_worker", worker)
     monkeypatch.setattr(graph_jobs, "read_active_sources", sources)
     manager = graph_jobs.GraphManager(settings, None, Repository(), observability=obs)
+    # 本例手动推进 pump 来控制提交 link；真实 task 生命周期由 readiness 异步回归覆盖。
+    monkeypatch.setattr(manager, "is_ready", lambda: True)
     with obs.activate(), obs.operation("graph_submit"):
         submission = trace.get_current_span().get_span_context()
         await manager.submit("private-tenant", GraphBuildRequest(knowledgeBase="general", activeSources=[]))

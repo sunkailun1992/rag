@@ -66,9 +66,45 @@ def test_coded_background_failure_exports_real_error_severity_without_fabricatin
     }
     assert dict(record.resource.attributes) == {
         "service.name": "rag-engine",
-        "service.version": "0.2.9",
+        "service.version": "0.3.0",
         "deployment.environment.name": "github-dev",
     }
+
+
+@pytest.mark.parametrize(
+    ("template", "arguments", "failure_class", "expected"),
+    [
+        (
+            "rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST",
+            (),
+            "ServiceUnavailable",
+            "ServiceUnavailable",
+        ),
+        ("rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST", (), PRIVATE, None),
+        ("rag_graph_build_failed code=%s", ("GRAPH_BUILD_FAILED",), "ServiceUnavailable", None),
+    ],
+)
+def test_only_lease_failure_exports_whitelisted_class_without_exception_text(
+    settings, caplog, template, arguments, failure_class, expected
+):
+    observation, _, logs = memory(settings)
+    try:
+        logging.getLogger("rag_engine.graph").error(
+            template,
+            *arguments,
+            extra={"failure_class": failure_class},
+            exc_info=(RuntimeError, RuntimeError(PRIVATE), None),
+        )
+    finally:
+        observation.shutdown()
+    record = logs.get_finished_logs()[0].log_record
+    assert record.severity_number == SeverityNumber.ERROR
+    assert record.attributes.get("failure_class") == expected
+    rendered = next(
+        record.getMessage() for record in caplog.records if "rag_diagnostic" in record.getMessage()
+    )
+    assert json.loads(rendered).get("failure_class") == expected
+    assert PRIVATE not in rendered
 
 
 async def test_concurrent_diagnostics_use_each_active_context_and_actual_warn_error_levels(settings):
