@@ -33,7 +33,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: sunkailun1992/rpc-api
-          ref: main
+          # Match the exact com:rpc-api:1.0.7 dependency when main advances.
+          ref: 459e45e2a37d66d1430e871ec2125d7644634c7a
           path: .ci-rpc-api
 
       - name: Checkout utils dependency
