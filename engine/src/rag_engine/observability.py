@@ -33,7 +33,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.2.8"
+VERSION = "0.2.9"
 HTTP_METHODS = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
 )

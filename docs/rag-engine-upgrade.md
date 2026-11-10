@@ -20,6 +20,8 @@ Engine `0.2.8` 是安全日志补丁，继续兼容 Java `1.2.4` 与既有 `/v1/
 
 ## 验收标准
 
+Java `1.2.5` / Engine `0.2.9` 的协议补丁新增可选 `RAG_ENGINE_RERANK_ENDPOINT` 与 `RAG_ENGINE_RERANK_WIRE`，默认旧DashScope行为；Cohere/LiteLLM必须显式完整端点。内部 `/v1/*` OpenAPI版本仍为1.0.0，API schema不变。严格embedding索引/数值守卫不更改物理模型、默认1024维或既有缓存/提取/图算法；部署时保证代理别名仍映射相同物理模型。真实loopback合同及整批无写入验证见[本轮设计](superpowers/specs/2026-11-10-litellm-rag-wire.md)，NAS有限真实切流由主会话另验。
+
 - [x] 既有 XLSX/DOCX、文档版本、幂等与图谱测试通过。
 - [x] 文字 PDF 可在无 OCR、无付费模型的本机环境解析；扫描件没有 OCR 时明确失败，不返回缺页的成功结果。
 - [x] 图片/PDF 检查真实类型、文件大小、页数、切片上限与处理超时；禁止路径穿越和任意 URL 获取。

@@ -82,7 +82,7 @@ def test_real_unnamed_dense_full_backfill_and_hybrid_api(settings):
                 async def handle_async_request(self, request):
                     if request.url.host == "models.example.test":
                         if request.url.path.endswith("/embeddings"):
-                            return httpx.Response(200, json={"data": [{"embedding": [1, 0, 0]}]})
+                            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 0, 0]}]})
                         return httpx.Response(503, text="synthetic rerank unavailable")
                     return await self.network.handle_async_request(request)
 

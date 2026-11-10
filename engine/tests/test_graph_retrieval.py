@@ -87,7 +87,7 @@ def upstream(settings, seeds, targets=(), rerank=True, score=0.9):
     def handler(request):
         body = json.loads(request.content)
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [1, 0, 0]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 0, 0]}]})
         if request.url.path.endswith("/search"):
             return httpx.Response(200, json={"result": seeds})
         if request.url.path.endswith("/points"):
@@ -290,7 +290,7 @@ async def test_graph_extension_runs_after_dense_sparse_rrf_and_before_rerank(set
             return httpx.Response(200, json=schema())
         body = json.loads(request.content)
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [1, 0, 0]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 0, 0]}]})
         if request.url.path.endswith("/count"):
             return httpx.Response(200, json={"result": {"count": 0}})
         if request.url.path.endswith("/search"):

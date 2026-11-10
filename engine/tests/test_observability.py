@@ -62,7 +62,7 @@ async def test_concurrent_asgi_and_httpx_contexts_preserve_trace_and_reset(setti
         if len(upstream) == 2:
             arrived.set()
         await asyncio.wait_for(arrived.wait(), 1)
-        return httpx.Response(200, json={"data": [{"embedding": [1, 2, 3]}]})
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 2, 3]}]})
 
     app = create_app(settings, httpx.MockTransport(respond), observability=obs)
     traces = ["1" * 32, "2" * 32]
@@ -253,7 +253,7 @@ def test_http_200_degradation_and_empty_results_have_business_metrics(settings):
 
     def upstream(request):
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [1, 2, 3]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 2, 3]}]})
         if request.url.path.endswith("/search"):
             return httpx.Response(200, json={"result": [hit()]})
         return httpx.Response(503, text="private-response")
@@ -486,7 +486,7 @@ def test_invalid_rerank_response_is_a_failed_stage_and_degraded_business_result(
 
     def upstream(request):
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [1, 2, 3]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 2, 3]}]})
         if request.url.path.endswith("/search"):
             return httpx.Response(200, json={"result": [hit()]})
         return httpx.Response(200, json={"results": [{"index": 999, "relevance_score": 0.9}]})

@@ -204,7 +204,7 @@ def test_retrieval_keeps_filter_and_uses_compatible_rerank_url(settings):
         body = json.loads(request.content)
         calls.append(request.url.path)
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [0.1, 0.2, 0.3]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]})
         if request.url.path.endswith("/search"):
             assert body["filter"]["must"] == [
                 {"key": "tenant_id", "match": {"value": "tenant-a"}},
@@ -229,7 +229,7 @@ def test_retrieval_rejects_upstream_boundary_violation(settings, bad):
     def upstream(request):
         if request.url.path.endswith("/embeddings"):
             return httpx.Response(
-                200, json={"data": [{"embedding": [0.1] if bad == "embedding" else [1, 2, 3]}]}
+                200, json={"data": [{"index": 0, "embedding": [0.1] if bad == "embedding" else [1, 2, 3]}]}
             )
         value = hit(tenant="other" if bad == "tenant" else "tenant-a")
         if bad == "status":
@@ -245,7 +245,7 @@ def test_retrieval_rejects_upstream_boundary_violation(settings, bad):
 def test_rerank_failure_falls_back_to_dense(settings):
     def upstream(request):
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [1, 2, 3]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 2, 3]}]})
         if request.url.path.endswith("/search"):
             return httpx.Response(200, json={"result": [hit()]})
         return httpx.Response(503, text="secret upstream detail")

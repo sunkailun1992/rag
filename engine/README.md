@@ -13,6 +13,19 @@
 
 ## 启动
 
+Engine `0.2.9` 与 Java `1.2.5` 补充模型网关协议和 embedding 完整性边界，不更改默认 `text-embedding-v4`、1024维、`qwen3-rerank`、相关性门槛、缓存键或图谱算法。缺少/重复/越界/非整数的索引、非数值/NaN/Inf/Float32溢出、数量或维度不符会整批拒绝；Java全部embedding批次成功后才写向量，Python查询失败不会继续召回。
+
+rerank配置：
+
+| 参数 | 默认 | 行为 |
+|---|---|---|
+| `RAG_ENGINE_RERANK_ENDPOINT` | 空 | dashscope沿用原compatible-api派生；显式值为完整端点，不追加路径 |
+| `RAG_ENGINE_RERANK_WIRE` | `dashscope` | 仅`dashscope`/`cohere`，cohere必须填写完整端点 |
+
+LiteLLM选择`cohere`并由运维提供完整`/v1/rerank`地址，继续用既有客户端认证配置。发送model/query/documents/top_n及`return_documents=false`，只取results索引/相关度并核对范围、唯一性和数量，不接纳上游回显文档。新端点拒绝内嵌凭据、查询串、fragment和控制字符，不跟随重定向。上游失败不自动重试，仍以`degraded=true`区分未完成重排；Java继续将其视为不可用，不把dense候选伪装成通过门槛的正常结果。
+
+真实切流还须核Java/Python摄取与查询使用相同物理模型和维度。代理地址变化会按现有图缓存配置指纹策略生效，本版不修改指纹公式，也不主动重建或抽取图谱。实际NAS接入/模型效果由运维有界验收，loopback替身测试不能代替。[协议设计与边界](../docs/superpowers/specs/2026-11-10-litellm-rag-wire.md)记录官方参考。
+
 使用 Python 3.12 和 uv，依赖锁定在 `uv.lock`；从仓库根执行：
 
 ```sh
@@ -172,7 +185,7 @@ NAS 宿主端口由 `RAG_ENGINE_HOST_PORT` 设置，默认 `18091`，避开已�
 - `rag_engine_retrievals_total{mode,result}`：dense/hybrid 与图增强的业务结果。失败和超时另由请求终态及阶段耗时的 result 区分；不把 HTTP 200 当作全部成功。
 - `rag_engine_graph_builds_total{result}`：已认领构建的成功、失败、超时或取消；排队超时与重启恢复失败在 Neo4j 事务确认后补终态。仓库存终态失败时仍有父进程运行终态，可与安全诊断定位；进程整体被硬杀时需等下一启动的持久任务恢复，内存中未导出的遥测不保证保留。
 
-`RAG_ENGINE_OBSERVABILITY_ENABLED=false` 默认不创建 SDK/export 线程；指标与安全事件保持可用。开启时使用固定官方 OpenTelemetry API/SDK/OTLP HTTP 1.45.2，独立 provider 不接管进程全局 SDK；服务名 `rag-engine`、版本 `0.2.8` 和受限环境字段为显式 resource 白名单。`RAG_ENGINE_OTLP_TRACES_ENDPOINT` 填 Collector 的 `/v1/traces` 完整地址，默认本机；OTLP logs 仅将该地址末尾替成 `/v1/logs`，authority、前缀路径、TLS与认证保持同一目标，不读取日志专用 endpoint 改投；容器应填可访问的私网 Collector 地址，不能把容器 loopback 当宿主。其他开关、抽样和 0.05–1 秒导出等待见 `.env.example`。底层 OTLP exporter 的标准 TLS/Collector 认证环境变量仍属运维配置，不从业务请求转发或采集凭据。
+`RAG_ENGINE_OBSERVABILITY_ENABLED=false` 默认不创建 SDK/export 线程；指标与安全事件保持可用。开启时使用固定官方 OpenTelemetry API/SDK/OTLP HTTP 1.45.2，独立 provider 不接管进程全局 SDK；服务名 `rag-engine`、版本 `0.2.9` 和受限环境字段为显式 resource 白名单。`RAG_ENGINE_OTLP_TRACES_ENDPOINT` 填 Collector 的 `/v1/traces` 完整地址，默认本机；OTLP logs 仅将该地址末尾替成 `/v1/logs`，authority、前缀路径、TLS与认证保持同一目标，不读取日志专用 endpoint 改投；容器应填可访问的私网 Collector 地址，不能把容器 loopback 当宿主。其他开关、抽样和 0.05–1 秒导出等待见 `.env.example`。底层 OTLP exporter 的标准 TLS/Collector 认证环境变量仍属运维配置，不从业务请求转发或采集凭据。
 
 个人 `github-dev` 在开启观测时固定全量采样，包括有效上游 `sampled=0`；保留同一trace与parent，不能通过另起根trace冒充完整链。其他环境沿用受控根trace比例与ParentBased上游决策。全采样不保证断网、队列溢出或进程崩溃时永不丢失，验收仍逐项读回。
 
@@ -189,11 +202,11 @@ SDK 使用后台批处理：队列 256、批次 32、调度 500ms、单批编码
 
 中央 Collector 的 OTLP 接收端使用独立 Bearer 令牌。将 `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <private-collector-token>` 写入 Git 外的私有环境文件，由运行环境注入；模板不填真实值，不在命令行中展开或打印，也不复用 Engine 服务 API 密钥。官方 HTTP exporter 从该环境变量读取 Collector 认证，业务请求的 Authorization、其他 header 和正文不作为导出内容。导出总 HTTP 等待仍受 `RAG_ENGINE_OTLP_TIMEOUT_SECONDS` 限制，请求路径不调用 flush。
 
-运行事件 `http.server.exchange` / `rag_operation_finished` / `rag_diagnostic` / `rag_dependency_diagnostic` 均以单行 JSON 写 stderr，包含 UTC ISO8601 `@timestamp`（毫秒、`Z` 后缀）及固定 `service={name,version,environment}`：`name=rag-engine`、`version=0.2.8`、environment 来自受控的 `RAG_ENGINE_OBSERVABILITY_ENVIRONMENT`。有效 OTel 上下文另含 `trace_id` / `span_id`。受管 runtime/dependency 诊断另保留按实际数值等级归一的 `log.level`，不因安全化而把 WARNING/ERROR 隐藏。中央采集只读取结构字段，可将 `elapsed_ms` / `result` 映射成 `duration_ms` / `outcome` 后执行白名单，不采原始 message 或 diagnostic 内容。
+运行事件 `http.server.exchange` / `rag_operation_finished` / `rag_diagnostic` / `rag_dependency_diagnostic` 均以单行 JSON 写 stderr，包含 UTC ISO8601 `@timestamp`（毫秒、`Z` 后缀）及固定 `service={name,version,environment}`：`name=rag-engine`、`version=0.2.9`、environment 来自受控的 `RAG_ENGINE_OBSERVABILITY_ENVIRONMENT`。有效 OTel 上下文另含 `trace_id` / `span_id`。受管 runtime/dependency 诊断另保留按实际数值等级归一的 `log.level`，不因安全化而把 WARNING/ERROR 隐藏。中央采集只读取结构字段，可将 `elapsed_ms` / `result` 映射成 `duration_ms` / `outcome` 后执行白名单，不采原始 message 或 diagnostic 内容。
 
 开启观测后，`emit_safe_event` 直接向每个app独立的 `LoggerProvider` 发送 `http.server.exchange` 与 `rag_operation_finished`，由官方HTTP exporter传给同一中央Collector的logs管线。NAS无需新增文件挂载或filelog服务，也不能再采同一份stderr以免重复。`0.2.8` 还将 `rag_engine` / `rag_engine.graph` 已通过模板、参数与错误码白名单的图谱诊断投影为 `rag_diagnostic`：只有固定 event/summary、known error_code/error_type，没有 diagnostic 原文、reason、source_hash、stack、header 或 body。没有合格错误码的应用诊断以及全部依赖诊断仍仅供本地安全诊断。
 
-HTTP/stage OTLP record保持INFO、空body，只有现有HTTP字段与有限stage/outcome/duration等typed标量白名单；HTTP summary从已验证字段重建，未知字段、正文、诊断文本、身份、调用者伪造的Trace/Span和错误原文均不导出。图谱诊断按真实 LogRecord.levelno 映射 TRACE/DEBUG/INFO/WARN/ERROR/FATAL 与标准 SeverityNumber 1/5/9/13/17/21。INFO 业务事件仍需按 outcome/error_code 判断结果，不能只按日志等级认定业务成功。Trace/Span ID取当前真实SDK上下文，同时写入原生关联字段与有限attributes；后台无有效 span 时不伪造关联。Resource只包含服务名、0.2.8版本与受控环境，不读取通用Resource环境属性，不安装Python LoggingHandler或进程全局SDK。关闭观测不创建日志provider/export线程，worker子进程协议不变。
+HTTP/stage OTLP record保持INFO、空body，只有现有HTTP字段与有限stage/outcome/duration等typed标量白名单；HTTP summary从已验证字段重建，未知字段、正文、诊断文本、身份、调用者伪造的Trace/Span和错误原文均不导出。图谱诊断按真实 LogRecord.levelno 映射 TRACE/DEBUG/INFO/WARN/ERROR/FATAL 与标准 SeverityNumber 1/5/9/13/17/21。INFO 业务事件仍需按 outcome/error_code 判断结果，不能只按日志等级认定业务成功。Trace/Span ID取当前真实SDK上下文，同时写入原生关联字段与有限attributes；后台无有效 span 时不伪造关联。Resource只包含服务名、0.2.9版本与受控环境，不读取通用Resource环境属性，不安装Python LoggingHandler或进程全局SDK。关闭观测不创建日志provider/export线程，worker子进程协议不变。
 
 同一 LogRecord 经过过滤器多次只导出一次；不重复采 stderr。OTel SDK/exporter 日志永远不桥接到此诊断出口，启动后懒创建的 SDK logger 也在最终 formatter 边界清除原文。导出线程与 enqueue 均有重入保护，失败不能再排入应用诊断；诊断 export/本地 sink 失败不改变应用结果，关闭后停止接收新的后台诊断。此约束不等同于传输层 exactly-once 或无丢失保证。
 

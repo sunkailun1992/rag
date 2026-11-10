@@ -1,8 +1,9 @@
 """仅从运行环境读取私有连接，配置值不回显到 API 或日志。"""
 
+from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,10 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-v4"
     embedding_dimension: int = Field(default=1024, ge=1, le=8192)
     rerank_model: str = "qwen3-rerank"
+    # 空值保留旧DashScope派生；显式值为完整端点，不再拼路径，不在repr显示。
+    rerank_endpoint: str = Field(default="", max_length=2048, repr=False)
+    # Cohere/LiteLLM需显式完整端点；默认保持旧请求载荷与派生路径。
+    rerank_wire: Literal["dashscope", "cohere"] = "dashscope"
     # 只作用于成功重排的 relevance_score；与 dense 相似度、RRF 名次分数不同。
     rerank_score_threshold: float = Field(default=0.5, ge=0, le=1, allow_inf_nan=False)
     # 只有 schema、完整回填及 Java 双写都已验收后才能启用。
@@ -76,7 +81,20 @@ class Settings(BaseSettings):
             raise ValueError("invalid Neo4j service URL")
         return value.rstrip("/")
 
-    @field_validator("qdrant_url", "qwen_base_url", "ocr_url", "otlp_traces_endpoint")
+    @model_validator(mode="after")
+    def explicit_rerank_target(self) -> "Settings":
+        if self.rerank_wire == "cohere" and not self.rerank_endpoint:
+            raise ValueError("cohere rerank requires an explicit endpoint")
+        return self
+
+    @field_validator("rerank_endpoint")
+    @classmethod
+    def rerank_endpoint_controls(cls, value: str) -> str:
+        if any(ord(character) <= 32 or ord(character) == 127 for character in value):
+            raise ValueError("rerank endpoint must not contain whitespace or controls")
+        return value
+
+    @field_validator("qdrant_url", "qwen_base_url", "ocr_url", "otlp_traces_endpoint", "rerank_endpoint")
     @classmethod
     def service_url(cls, value: str) -> str:
         """地址只能由运维配置；禁止凭据、查询串与跳转掩盖最终目标。"""

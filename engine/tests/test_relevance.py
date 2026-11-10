@@ -17,7 +17,7 @@ from rag_engine.config import Settings
 def dense_upstream(scores):
     def handler(request):
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [1, 0, 0]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 0, 0]}]})
         if request.url.path.endswith("/search"):
             points = []
             for index in range(len(scores)):

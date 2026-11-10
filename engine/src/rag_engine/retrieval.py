@@ -40,14 +40,25 @@ async def retrieve(
             settings.max_upstream_bytes,
         )
         try:
-            if len(embedding["data"]) != 1 or embedding["data"][0].get("index", 0) != 0:
+            data = embedding["data"]
+            if (
+                not isinstance(data, list)
+                or len(data) != 1
+                or type(data[0]["index"]) is not int
+                or data[0]["index"] != 0
+            ):
                 raise ValueError("embedding count/index")
-            vector = embedding["data"][0]["embedding"]
-            if len(vector) != settings.embedding_dimension or any(
-                isinstance(x, bool) or not isinstance(x, (float, int)) or not math.isfinite(x) for x in vector
+            vector = data[0]["embedding"]
+            if (
+                not isinstance(vector, list)
+                or len(vector) != settings.embedding_dimension
+                or any(
+                    type(x) not in {float, int} or not math.isfinite(x) or abs(x) > 3.4028234663852886e38
+                    for x in vector
+                )
             ):
                 raise ValueError("embedding dimension/value")
-        except (KeyError, TypeError, IndexError, ValueError) as error:
+        except (KeyError, TypeError, IndexError, ValueError, OverflowError) as error:
             raise EngineError("EMBEDDING_INVALID_RESPONSE") from error
     mode = "dense"
     degraded = False
@@ -82,15 +93,19 @@ async def retrieve(
         # 重排超时可回退已获得的向量排序，但整个请求仍受外层 3 秒总预算限制。
         with stage("rerank"):
             async with asyncio.timeout(settings.rerank_timeout_seconds):
+                rerank_body = {
+                    "model": settings.rerank_model,
+                    "query": request.query,
+                    "documents": [hit.payload["content"] for hit in hits],
+                    "top_n": request.topK,
+                }
+                if settings.rerank_wire == "cohere":
+                    rerank_body["return_documents"] = False
                 ranking = await post_json(
                     client,
-                    settings.qwen_base_url.replace("/compatible-mode/", "/compatible-api/") + "/reranks",
-                    {
-                        "model": settings.rerank_model,
-                        "query": request.query,
-                        "documents": [hit.payload["content"] for hit in hits],
-                        "top_n": request.topK,
-                    },
+                    settings.rerank_endpoint
+                    or settings.qwen_base_url.replace("/compatible-mode/", "/compatible-api/") + "/reranks",
+                    rerank_body,
                     auth,
                     settings.max_upstream_bytes,
                 )

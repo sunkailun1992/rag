@@ -54,7 +54,7 @@ def hybrid_upstream(settings, *, sparse_hits=None, missing=0, no_schema=False, r
             return httpx.Response(200, json=schema(not no_schema))
         body = json.loads(request.content)
         if request.url.path.endswith("/embeddings"):
-            return httpx.Response(200, json={"data": [{"embedding": [1, 0, 0]}]})
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1, 0, 0]}]})
         if request.url.path.endswith("/count"):
             assert body["exact"] is True
             assert {"has_vector": SPARSE_MODEL} in body["filter"]["must_not"][0]["must"]
