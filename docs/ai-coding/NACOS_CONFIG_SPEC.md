@@ -30,6 +30,8 @@
 | 共享 AI 模型 | `ai-model-secrets.yaml` | 模型选择及私有凭据占位符，按实际消费者导入 |
 | 服务配置 | `{service}-spring.yaml` | 同一服务的数据源、模型选择、路由及服务专属参数；共享配置仍独立维护 |
 
+本服务使用 `rag.vector.*` 与 `rag.engine.*`；三个 profile 不导入 `ai-model-secrets.yaml`，不加载无关的 Google 凭据/模型名。Python Engine 的 `RAG_ENGINE_*` 环境配置独立管理，本项不改变它。删除无关导入不会清理既有进程的内存，须以受控重启及目标环境读回为准；不删除共享 dataId 或改变其它消费者。
+
 分类是维护索引，不是新的目录或 group。当前保留 27 个 dataId 和 `DEFAULT_GROUP`；经单独授权并验证后，5 个服务专属文件合并到相邻的 `{service}-spring.yaml`，3 个空服务文件移除。不得在纯注释任务中擅自再次调整结构。
 
 ## 3. 配置归属与隔离

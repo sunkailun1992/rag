@@ -2,6 +2,8 @@
 
 `rag` 是 RAG 知识检索服务后端微服务。
 
+当前 Java 版本为 `1.2.6`，Engine 保持 `0.2.9`。三个 profile 不再导入只提供 Google 凭据与模型名的 `ai-model-secrets.yaml`：Java RAG 使用 `rag.vector.*`，不创建 Google 模型。移除无关导入不改变 embedding 模型、维度、Engine 环境变量或其它 Nacos 导入；已运行进程须受控重启新制品后再核对，源码变更不代表旧进程已卸载凭据。
+
 Java `1.2.5` / Engine `0.2.9` 增加显式 rerank 端点与 DashScope/Cohere wire 选择，可对接 LiteLLM 的完整 `/v1/rerank`；未配置新参数时保留旧路径派生。Java/Python 均严格拒绝缺失或冲突的 embedding 索引及非法向量，整份摄取不返回部分批次。物理模型、1024维默认、缓存/提取/图谱规则保持；接入参数和真实切流边界见[Engine配置](engine/README.md#启动)，源码测试不表示NAS已切换。
 
 当前项目从现有 Java 微服务工程骨架（`report`）复制迁移而来，**不包含任何 report 业务代码**，也不包含 `user` 服务的用户、租户、角色、权限资源等业务类。当前已实现 XLSX / DOCX 结构化摄取、embedding、Qdrant 向量存储与检索、rerank 重排、文档幂等/版本、向量读回校验，以及可视化知识图谱投影；MCP 工具和 AI Registry 注册仍属后续阶段。
@@ -103,11 +105,11 @@ python3 scripts/verify-rag-engine.py
 logging.yml
 reuse-configuration.yaml
 traffic-governance.yaml
+actuator.yaml
+security-jwt.yaml
 security-auth.yaml
 swagger.yaml
-ai-model-secrets.yaml   # AI 模型供应商 API Key / base-url；真实密钥只放 Nacos
-rag-spring.yaml                # rag 业务配置：RAG 检索参数、collection、topK、阈值等私有 @ConfigurationProperties
-rag-spring.yaml         # rag Spring / 数据源 / Spring AI 模型 / 服务私有基础配置
+rag-spring.yaml         # 服务框架、数据源、rag.vector.*、rag.engine.* 及其它服务专属参数
 qdrant.yaml             # Qdrant 向量库连接，RAG 检索入口
 mybatis-plus.yaml
 redis.yaml

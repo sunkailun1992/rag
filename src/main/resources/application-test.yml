@@ -55,8 +55,6 @@ spring:
       - "optional:nacos:security-auth.yaml?refreshEnabled=true"
       # swagger.yaml：OpenAPI/Swagger 展示公共开关与分组配置。
       - "optional:nacos:swagger.yaml?refreshEnabled=true"
-      # ai-model-secrets.yaml：AI 模型供应商 API Key / base-url 等密钥配置；真实密钥只放 Nacos，不进仓库。
-      - "optional:nacos:ai-model-secrets.yaml?refreshEnabled=true"
       # rag-spring.yaml：本服务统一配置，包含框架/数据源与服务专属参数；原有共享配置覆盖顺序保持不变。
       - "optional:nacos:rag-spring.yaml?refreshEnabled=true"
       # qdrant.yaml：Qdrant 向量数据库连接配置，RAG 检索向量库入口。
