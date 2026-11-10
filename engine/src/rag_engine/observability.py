@@ -7,6 +7,7 @@ import logging
 import math
 import re
 import time
+import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,7 +22,7 @@ from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.metrics import NoOpMeterProvider
 from opentelemetry.sdk._logs import LoggerProvider, LogRecordLimits
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogRecordExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanLimits, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -32,7 +33,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.2.7"
+VERSION = "0.2.8"
 HTTP_METHODS = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
 )
@@ -71,6 +72,8 @@ STAGES = frozenset(
 RESULTS = frozenset({"success", "failed", "cancelled", "timeout", "degraded", "empty", "client_error"})
 PROPAGATOR = TraceContextTextMapPropagator()
 _CURRENT = contextvars.ContextVar("rag_observability", default=None)
+_LOG_EXPORTING = contextvars.ContextVar("rag_log_exporting", default=False)
+_RUNTIME_FILTERED = object()
 logger = logging.getLogger("rag_engine.events")
 _SERVICE_ENVIRONMENT = "github-dev"
 
@@ -208,6 +211,11 @@ class SafeJsonFormatter(logging.Formatter):
         self.original = original or logging.Formatter()
 
     def format(self, record):
+        # SDK会在启动后懒创建exporter子logger；logger父级filter不会过滤子级record。
+        if not getattr(record, "_rag_safe_json", False) and (
+            record.name == "opentelemetry" or record.name.startswith("opentelemetry.")
+        ):
+            SafeDependencyLog().filter(record)
         if getattr(record, "_rag_safe_json", False):
             return record.getMessage()
         return self.original.format(record)
@@ -223,10 +231,55 @@ def protect_final_handlers(log):
         log = log.parent
 
 
+def log_severity(level):
+    """从实际数值等级归一；不信任可被调用者改写的levelname。"""
+    for threshold, text, number in (
+        (logging.CRITICAL, "FATAL", SeverityNumber.FATAL),
+        (logging.ERROR, "ERROR", SeverityNumber.ERROR),
+        (logging.WARNING, "WARN", SeverityNumber.WARN),
+        (logging.INFO, "INFO", SeverityNumber.INFO),
+        (logging.DEBUG, "DEBUG", SeverityNumber.DEBUG),
+        (1, "TRACE", SeverityNumber.TRACE),
+    ):
+        if type(level) is int and level >= threshold:
+            return text, number
+    return "UNSPECIFIED", SeverityNumber.UNSPECIFIED
+
+
+def diagnostic_code(template, arguments):
+    """只提升现有graph错误模板的白名单码，不解析自由正文/诊断帧。"""
+    fixed = {
+        "rag_graph_failed code=GRAPH_STORE_UNAVAILABLE": "GRAPH_STORE_UNAVAILABLE",
+        "rag_graph_scheduler_failed code=GRAPH_STORE_UNAVAILABLE": "GRAPH_STORE_UNAVAILABLE",
+        "rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST": "GRAPH_WORKER_LEASE_LOST",
+    }
+    if template in fixed and not arguments:
+        return fixed[template]
+    if template in {"rag_graph_build_failed code=%s", "rag_graph_model_failed code=%s"}:
+        return arguments[0] if len(arguments) == 1 and arguments[0] in SAFE_CODES else None
+    if template in {"%s code=%s reason=%s", "%s code=%s reason=%s source_hash=%s"}:
+        if len(arguments) in {3, 4} and arguments[0] in {
+            "rag_graph_model_failed",
+            "rag_graph_validation_failed",
+        }:
+            return arguments[1] if arguments[1] in SAFE_CODES else None
+    return None
+
+
 class SafeRuntimeLog(logging.Filter):
     """只序列化现有已审核模板及受限诊断；陌生模板与异常原文失败关闭。"""
 
+    def __init__(self):
+        super().__init__()
+        self.observation = None
+
+    def bind(self, observation):
+        self.observation = weakref.ref(observation) if observation is not None else None
+
     def filter(self, record):
+        if getattr(record, "_rag_runtime_filtered", None) is _RUNTIME_FILTERED:
+            return True
+        template = record.msg
         trusted = (
             isinstance(record.msg, str) and record.msg in SAFE_TEMPLATES and isinstance(record.args, tuple)
         )
@@ -263,10 +316,26 @@ class SafeRuntimeLog(logging.Filter):
             diagnostic = record.getMessage() if trusted else "suppressed"
         except (TypeError, ValueError):
             diagnostic = "suppressed"
-        value = {**event_metadata(), "event": "rag_diagnostic", "diagnostic": diagnostic}
+            trusted = False
+        value = {
+            **event_metadata(),
+            "log": {"level": log_severity(record.levelno)[0]},
+            "event": "rag_diagnostic",
+            "diagnostic": diagnostic,
+        }
+        record._rag_runtime_filtered = _RUNTIME_FILTERED
         record._rag_safe_json = True
         record.msg, record.args = json.dumps(value, separators=(",", ":")), ()
         record.exc_info = record.exc_text = record.stack_info = None
+        if trusted and record.name in {"rag_engine", "rag_engine.graph"} and not _LOG_EXPORTING.get():
+            try:
+                code = diagnostic_code(template, arguments)
+                observation = _CURRENT.get() or (self.observation() if self.observation else None)
+                if code is not None and observation is not None:
+                    observation._export_diagnostic(code, record.levelno)
+            except Exception:
+                # 不改变应用日志/请求结果，不用另一条日志报告日志导出失败。
+                pass
         return True
 
 
@@ -275,7 +344,12 @@ class SafeDependencyLog(logging.Filter):
 
     def filter(self, record):
         record.msg = json.dumps(
-            {**event_metadata(), "event": "rag_dependency_diagnostic", "result": "failed"},
+            {
+                **event_metadata(),
+                "log": {"level": log_severity(record.levelno)[0]},
+                "event": "rag_dependency_diagnostic",
+                "result": "failed",
+            },
             separators=(",", ":"),
         )
         record.args = ()
@@ -284,7 +358,7 @@ class SafeDependencyLog(logging.Filter):
         return record.levelno >= logging.WARNING
 
 
-def protect_dependency_logs(environment):
+def protect_dependency_logs(environment, observation=None):
     global _SERVICE_ENVIRONMENT
     _SERVICE_ENVIRONMENT = environment
     runtime_root = logging.getLogger("rag_engine")
@@ -295,8 +369,11 @@ def protect_dependency_logs(environment):
         runtime_root.addHandler(handler)
     for name in ("rag_engine", "rag_engine.graph"):
         runtime = logging.getLogger(name)
-        if not any(isinstance(item, SafeRuntimeLog) for item in runtime.filters):
-            runtime.addFilter(SafeRuntimeLog())
+        runtime_filter = next((item for item in runtime.filters if isinstance(item, SafeRuntimeLog)), None)
+        if runtime_filter is None:
+            runtime_filter = SafeRuntimeLog()
+            runtime.addFilter(runtime_filter)
+        runtime_filter.bind(observation)
         protect_final_handlers(runtime)
     dependency_names = {
         name
@@ -342,10 +419,34 @@ class BoundedLogRecordProcessor(BatchLogRecordProcessor):
         self._batch_processor.shutdown(timeout_millis=1000)
 
 
+class DiagnosticGuardExporter(LogRecordExporter):
+    """SDK导出线程的日志不能再进入应用诊断队列，包括委托抛错路径。"""
+
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def guarded(self, call, *args):
+        token = _LOG_EXPORTING.set(True)
+        try:
+            return call(*args)
+        finally:
+            _LOG_EXPORTING.reset(token)
+
+    def export(self, batch):
+        return self.guarded(self.delegate.export, batch)
+
+    def shutdown(self):
+        return self.guarded(self.delegate.shutdown)
+
+    def force_flush(self, timeout_millis=30000):
+        return self.guarded(self.delegate.force_flush, timeout_millis)
+
+
 class Observability:
     def __init__(self, settings, *, exporter=None, log_exporter=None):
         self.environment = settings.observability_environment
-        protect_dependency_logs(self.environment)
+        self._diagnostic_closed = False
+        protect_dependency_logs(self.environment, self)
         self.registry = CollectorRegistry()
         self.requests = Counter(
             "rag_engine_requests", "HTTP请求终态", ["route", "method", "result"], registry=self.registry
@@ -437,7 +538,7 @@ class Observability:
                 )
             self.log_provider.add_log_record_processor(
                 BoundedLogRecordProcessor(
-                    log_exporter,
+                    DiagnosticGuardExporter(log_exporter),
                     max_queue_size=256,
                     max_export_batch_size=32,
                     schedule_delay_millis=500,
@@ -507,12 +608,43 @@ class Observability:
             self.retrievals.labels("graph", "success").inc()
 
     def shutdown(self):
+        self._diagnostic_closed = True
         for provider in (self.provider, self.log_provider):
             if provider:
                 try:
                     provider.shutdown()
                 except Exception:
                     pass
+
+    def _export_diagnostic(self, code, level):
+        if (
+            self._diagnostic_closed
+            or self.event_logger is None
+            or _LOG_EXPORTING.get()
+            or code not in SAFE_CODES
+        ):
+            return
+        attributes = {
+            "event": "rag_diagnostic",
+            "summary": "RAG graph diagnostic: " + code,
+            "error_code": code,
+            "error_type": "timeout" if code.endswith("_TIMEOUT") else "server",
+        }
+        context = trace.get_current_span().get_span_context()
+        if context.is_valid:
+            attributes.update(trace_id=f"{context.trace_id:032x}", span_id=f"{context.span_id:016x}")
+        text, number = log_severity(level)
+        token = _LOG_EXPORTING.set(True)
+        try:
+            self.event_logger.emit(
+                timestamp=time.time_ns(),
+                severity_number=number,
+                severity_text=text,
+                body=None,
+                attributes=attributes,
+            )
+        finally:
+            _LOG_EXPORTING.reset(token)
 
     def export_event(self, value):
         """只接收显式安全事件，不挂通用LoggingHandler、不采标准库或worker日志。"""

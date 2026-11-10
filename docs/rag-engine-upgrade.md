@@ -16,6 +16,8 @@ Java `rag` 继续拥有认证、租户、文档版本、幂等、Qdrant 写入�
 - OCR HTTP 读取等待使用解析预算，连接/池等待保持短超时；它不能延长 `/v1/parses` 的总 deadline，其他共享 HTTP 调用默认超时不变。真实本地延迟 HTTP 回归验证慢 OCR 可完成及总预算超时仍返回 504。
 - Python 整次检索有总超时，Java HTTP 检索上限 3500 毫秒，为上游 Dubbo 5000 毫秒留余量。超时、鉴权错误与无命中分别记录，日志不记录问题、文件正文或凭据。
 
+Engine `0.2.8` 是安全日志补丁，继续兼容 Java `1.2.4` 与既有 `/v1/*` OpenAPI。runtime/dependency 的安全 JSON 保留真实数值归一后的日志等级；已通过现有白名单的图谱后台错误另通过现有 OTLP logs 出口发送固定错误码摘要，标准 SeverityText/Number 与当前真实上下文一致，无 span 则不造 trace。原始 msg/stack、reason、source_hash、身份、header/body 不进入此诊断出口，SDK/exporter 自身日志不回流。HTTP/stage 的 INFO 业务结果语义、取消、业务预算与图谱调度不变。版本 manifest、日志资源与契约测试同步为 `0.2.8`，Java 与 API schema 不变；完整字段和本机验证边界见 [安全运行事件](../engine/README.md#指标链路与安全运行事件028)。
+
 ## 验收标准
 
 - [x] 既有 XLSX/DOCX、文档版本、幂等与图谱测试通过。
