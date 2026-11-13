@@ -24,8 +24,8 @@
 
 - 项目名称：`rag`
 - 项目类型：RAG 知识检索服务后端；为 fleet / AI 中台提供「知识检索」能力，以 **MCP 工具 + Nacos AI Registry** 形式被智能体（如 `ai-agent` 及后续新中台 agent）发现并调用。
-- 技术栈：Java 17、Spring Boot 4、Qdrant REST 向量库、独立 Python 3.12 引擎（FastAPI / LlamaIndex / pypdf）、Spring Cloud Alibaba、Nacos、Dubbo、MyBatis-Plus、Gradle、`com:utils`、`com:rpc-api`
-- Utils 制品隔离：本 GitHub 个人项目固定使用 `com:utils:1.6.2`；公司项目使用 `com.kellen:utils`。二者共用私有 Maven 地址，以 group 区分制品；Java 包名 `com.kellen.*` 不随 Maven group 改动。
+- 技术栈：Java 21、Spring Boot 4、Qdrant REST 向量库、独立 Python 3.12 引擎（FastAPI / LlamaIndex / pypdf）、Spring Cloud Alibaba、Nacos、Dubbo、MyBatis-Plus、Gradle、`com:utils`、`com:rpc-api`
+- Utils 制品隔离：本 GitHub 个人项目固定使用 `com:utils:1.6.6`；公司项目使用 `com.kellen:utils`。二者共用私有 Maven 地址，以 group 区分制品；Java 包名 `com.kellen.*` 不随 Maven group 改动。
 - 同级依赖：`../rpc-api` 提供跨服务 RPC 接口和 DTO 契约；`../utils` 提供公共响应、认证上下文、租户、多数据源和基础工具；`../gateway` 负责路由；`../ai-agent` 是当前主要 MCP / AI Registry 消费方
 - 当前状态：已实现 XLSX/DOCX 结构化摄取、embedding、Qdrant 检索、rerank、版本/幂等、读回校验及图谱。本批增加独立 Python 解析/检索引擎、PDF/OCR 适配和评估基准；旧检索与图谱迁移开关已删除。混合检索已实现 LlamaIndex dense/sparse RRF 与显式迁移，必须实际验收后启用；MCP/AI Registry、查询改写和异步摄取仍未实施，不能按文件或依赖存在宣称已启用。
 - 引擎改造入口：先读 `docs/rag-engine-upgrade.md`、`engine/README.md`、`engine/openapi.json` 与 `evaluation/README.md`；不得绕过 Java 权限门面直接将 Python API 暴露给前端。

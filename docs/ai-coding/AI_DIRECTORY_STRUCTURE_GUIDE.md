@@ -1,6 +1,6 @@
 # AI 目录管理规范
 
-本规范约束 AI 在 `rag` RAG 知识检索服务中新增、移动、拆分和命名目录的方式。目录管理必须基于当前 Java 17、Spring Boot、Gradle、MyBatis-Plus、RabbitMQ 和 Nacos 微服务结构。
+本规范约束 AI 在 `rag` RAG 知识检索服务中新增、移动、拆分和命名目录的方式。目录管理必须基于当前 Java 21、Spring Boot、Gradle、MyBatis-Plus、RabbitMQ 和 Nacos 微服务结构。
 
 ## 核心依据
 

@@ -17,7 +17,8 @@ public final class LexicalSparseVector {
     private LexicalSparseVector() { }
 
     public static Map<String, Object> encode(String content) {
-        // Java 17 的 Unicode 13 与 Python 3.12 的 Unicode 15 在这四个兼容字符上不同。
+        // Unicode 14 新增的四个修饰字母：Java 17（Unicode 13）的 NFKC 不分解，Python 3.12（Unicode 15）分解为 C/F/Q/q。
+        // Java 21 的 NFKC 已与 Python 一致（2026-11-13 实测），预替换结果相同；保留以免在旧 JVM 上与 Python 引擎分叉。
         String compatible = content.replace("\uA7F2", "C").replace("\uA7F3", "F")
                 .replace("\uA7F4", "Q").replace("\uD801\uDFA5", "q");
         var matcher = WORDS.matcher(Normalizer.normalize(compatible, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT));

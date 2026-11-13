@@ -42,11 +42,11 @@
 
 ## 技术基线
 
-- Java 17
-- Spring Boot 4.0.4
-- Spring Cloud 2025.1.1
+- Java 21
+- Spring Boot 4.0.9
+- Spring Cloud 2025.1.4
 - Spring Cloud Alibaba 2025.1.0.0
-- Nacos Client 3.2.2
+- Nacos Client 3.3.0
 - Seata Server 2.7.0
 - Seata Client 2.6.0
 - MyBatis-Plus 3.5.15
@@ -554,4 +554,4 @@ AI 每次新增模块时必须检查：
 - 是否同步补充或更新 JUnit 5 测试用例。
 - 是否运行 `./gradlew clean compileJava test`。
 
-个人 XXL-JOB 已退役，不再新增其依赖、配置类或 `xxl-job.yaml` 导入。调度选用 NAS 独立 Conductor OSS，通过 REST 接入；业务 Java 调度接口尚未实现，保持 Java 17，不为此引入要求 Java 21 的最新 SDK。
+个人 XXL-JOB 已退役，不再新增其依赖、配置类或 `xxl-job.yaml` 导入。调度选用 NAS 独立 Conductor OSS，通过 REST 接入；业务 Java 调度接口尚未实现；个人服务已统一 Java 21，需要时再评估 Conductor Java SDK，本轮不引入。

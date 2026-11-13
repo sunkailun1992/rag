@@ -1,7 +1,7 @@
 package com.kellen.example.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.IService;
+import com.baomidou.mybatisplus.spring.service.IService;
 import com.kellen.example.entity.ExampleEntity;
 import com.kellen.example.entity.bo.ExampleBO;
 import com.kellen.example.entity.query.ExampleQuery;

@@ -59,4 +59,4 @@
 6. 私有渲染使用新的空输出目录，发布前将文件集合与 catalog 核对，避免已移除的旧文件残留后被再次发布。所有参数和文件说明必须保留；配置描述不包含任何真实凭据。
 7. 新服务按既有引导结构接入。需要通过网关访问时同步检查路由与后端 Controller 原生路径；需要 Swagger 聚合时再显式启用并验证对应文档入口，不因新增服务默认开放管理或文档端点。
 
-个人 XXL-JOB 已退役，不再新增其依赖、配置类或 `xxl-job.yaml` 导入。调度选用 NAS 独立 Conductor OSS，通过 REST 接入；业务 Java 调度接口尚未实现，保持 Java 17，不为此引入要求 Java 21 的最新 SDK。
+个人 XXL-JOB 已退役，不再新增其依赖、配置类或 `xxl-job.yaml` 导入。调度选用 NAS 独立 Conductor OSS，通过 REST 接入；业务 Java 调度接口尚未实现；个人服务已统一 Java 21，需要时再评估 Conductor Java SDK，本轮不引入。
