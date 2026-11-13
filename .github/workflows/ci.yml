@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: sunkailun1992/utils
-          ref: 33a648dee9df256c494f0e61e59070c924fe90d4 # com:utils 1.6.6 / fleet-observability 0.1.4
+          ref: cf7643e23649b45eb6d2faeef5ae05fc6817fa03 # com:utils 1.6.6 / fleet-observability 0.1.4
           path: .ci-utils
 
       - name: Hide CI dependency checkout from scans
