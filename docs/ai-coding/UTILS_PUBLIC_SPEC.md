@@ -13,13 +13,13 @@
 ## 环境规则
 
 - profile、Nacos namespace 与私有引导配置按 `ENVIRONMENT_CONFIG_SPEC.md`；当前个人本地 dev 使用 github-dev，不沿用归档里的旧环境或组织工具约定。
-- main/test/preprod 是 Git 职责，不自动切换运行环境；正式环境不得制造测试数据，配置、数据修复和部署按明确授权与回滚计划执行。
+- Git 分支（只保留 `main` 长期分支）不自动切换运行环境；正式环境不得制造测试数据，配置、数据修复和部署按明确授权与回滚计划执行。
 
 ## 分支规则
 
 - 当前分支流程以 `AGENTS.md` / `BRANCHING_SPEC.md` 为准：核仓库、WIP、worktree 后 fetch，普通新目标从最新 origin/main 建短分支，承载完整功能及必需配套。
-- 授权集成 test/preprod 后保留尚未进入 main 的源分支；完整功能及配套进入远端 main、读回包含关系后，按已有授权清理本地/远程功能分支。
-- 保护 main/test/preprod、未合或其他 worktree 在用的分支；不强推、不按过期天数自动删除，不把释放 worktree 当作分支交付。
+- 尚未进入 main 的源分支保留；完整功能及配套进入远端 main、读回包含关系后，按已有授权清理本地/远程功能分支。
+- 保护 `main`、未合或其他 worktree 在用的分支；不强推、不按过期天数自动删除，不把释放 worktree 当作分支交付。
 - archive 的 personal/dev 团队原文仅作历史资料，不作为当前操作指令；版本、精确公共包和外部发布授权按现行规范执行。
 
 ## 数据库规则

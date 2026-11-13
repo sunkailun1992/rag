@@ -4,7 +4,7 @@
 
 ## 完整功能与交付证据
 
-修改按 `AGENTS.md` / `BRANCHING_SPEC.md` 核对基线、WIP 和授权，完整记录实现、测试、文档、migration、公共契约及必需跨仓配套。main/test/preprod 分别记录实际集成的固定 HEAD，不把中间分支验证或一次 push 当作 main、制品、部署的验收。
+修改按 `AGENTS.md` / `BRANCHING_SPEC.md` 核对基线、WIP 和授权，完整记录实现、测试、文档、migration、公共契约及必需跨仓配套。记录 main 实际集成的固定 HEAD，不把中间分支验证或一次 push 当作 main、制品、部署的验收。
 
 正式 main 交付并完成远端包含核对后，按已有授权清理本任务本地/远程短分支；未合或其他 worktree 在用的分支保留。交付说明须包含验证命令与结果、未覆盖风险、CI/发布状态、分支/worktree 保留或清理原因。Review 是补充检查，不替代独立风险验证，也不增设人工批准门禁。
 

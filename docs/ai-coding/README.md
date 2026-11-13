@@ -6,7 +6,7 @@
 
 ## 通用规则入口
 
-先核对 `BRANCHING_SPEC.md` 的 main/test/preprod、完整功能交付与清理保护，再按 `VERSIONING_SPEC.md` 做版本进位和已用制品核对；安全关键改动须有独立风险验证，Review 是补充。纯规范变更不提升业务版本、不机械重跑 Java 测试。
+先核对 `BRANCHING_SPEC.md` 的 main 保护、完整功能交付与清理，再按 `VERSIONING_SPEC.md` 做版本进位和已用制品核对；安全关键改动须有独立风险验证，Review 是补充。纯规范变更不提升业务版本、不机械重跑 Java 测试。
 
 ## 快速阅读
 
@@ -16,7 +16,7 @@
 4. 再读 `AI_AUTOMATION_WORKFLOW.md`，按需求说明、验收标准、开发手册、测试说明和交付说明组织自动化开发。
 5. 再读 `AI_ENGINEERING_GUARDRAILS.md`，确认风险分级、Definition of Done、测试门禁、安全门禁和交付说明。
 6. 再读 `BRANCHING_SPEC.md`，确认分支命名、短分支生命周期、release/hotfix、tag 和清理规则。
-7. 再读 `ENVIRONMENT_CONFIG_SPEC.md`，确认环境、Nacos namespace、Java profile 和前端/小程序边界。
+7. 再读 `ENVIRONMENT_CONFIG_SPEC.md`，确认环境、Nacos namespace、Java profile 和前端边界。
 8. 再读 `VERSIONING_SPEC.md`，确认 `group = 'com'`、`version = '1.0.0'`、补丁递增和公共包消费者同步规则。
 9. 再读 `RPC_API_CODING_SPEC.md`，确认 Dubbo RPC 契约、provider/consumer、`../rpc-api` 和 `../utils` 边界。
 10. 再读 `TESTING_SPEC.md`，确认业务模块 SpringBootTest、真实 HTTP 集成测试、测试库和 AssertJ 边界。
@@ -85,7 +85,7 @@ docs/ai-coding/
 - AI 新增或重构知识检索、摄取、切片、embedding、向量库访问、MCP 工具和 AI Registry 注册前，必须阅读 `AI_DESIGN_PATTERN_GUIDE.md`。
 - AI 新增或修改 README、AI 规范、配置、脚本、测试、示例和代码时，禁止写入个人电脑绝对路径、本机下载目录、本机 JDK 路径或本机仓库完整路径；需要表达目录关系时使用相对路径、环境变量或 `<PLACEHOLDER>` 占位符。
 - 分支命名、短分支生命周期、release/hotfix、tag 和分支清理按 `BRANCHING_SPEC.md` 处理。
-- 环境、Nacos namespace、Java profile 和前端/小程序边界按 `ENVIRONMENT_CONFIG_SPEC.md` 处理。
+- 环境、Nacos namespace、Java profile 和前端边界按 `ENVIRONMENT_CONFIG_SPEC.md` 处理。
 - 项目版本、公共包依赖和后端 Java 新项目基础坐标按 `VERSIONING_SPEC.md` 处理；纯 AI 规范或 README 改动不提升制品版本。
 - Dubbo RPC 契约统一维护在同级 `../rpc-api`；`rag` 作为 provider 或 consumer 时都不在 `utils` 或本服务重复定义跨服务接口/DTO。
 - AI 开始功能开发前必须按 `AI_AUTOMATION_WORKFLOW.md` 先整理需求说明、验收标准和开发手册；如果用户需求很小，可以在回复中简化呈现，但内部检查项不能跳过。
