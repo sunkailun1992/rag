@@ -195,6 +195,17 @@ public class RagEngineClient {
     /** 查询引擎只接受当前租户；响应跨租户或跨知识库时整体拒绝。 */
     public List<VectorSearchHit> retrieve(String query, String knowledgeBase, int topK, int candidates,
                                          double threshold, int contextLimit) {
+        return retrieve(query, knowledgeBase, topK, candidates, threshold, contextLimit, false);
+    }
+
+    /** 灰度 RPC 需要区分健康的无命中与图谱降级。 */
+    public List<VectorSearchHit> retrieveCanary(String query, String knowledgeBase, int topK, int candidates,
+                                               double threshold, int contextLimit) {
+        return retrieve(query, knowledgeBase, topK, candidates, threshold, contextLimit, true);
+    }
+
+    private List<VectorSearchHit> retrieve(String query, String knowledgeBase, int topK, int candidates,
+                                          double threshold, int contextLimit, boolean canary) {
         String tenant = requireTenant();
         JsonNode response = request("/v1/retrievals", Map.of("query", query, "knowledgeBase", knowledgeBase,
                 "topK", topK, "candidateCount", candidates, "similarityThreshold", threshold,
@@ -204,6 +215,10 @@ public class RagEngineClient {
         // RPC 不携带降级标记，不能把未获相关性保证的候选当正常上下文；缺失沿用协议默认 false。
         JsonNode degraded = response.path("degraded");
         require(degraded.isMissingNode() || (degraded.isBoolean() && !degraded.asBoolean()));
+        if (canary) {
+            JsonNode graphDegraded = response.path("graphDegraded");
+            require(graphDegraded.isMissingNode() || (graphDegraded.isBoolean() && !graphDegraded.asBoolean()));
+        }
         JsonNode hits = response.path("hits");
         require(hits.isArray() && hits.size() <= topK);
         List<VectorSearchHit> output = new ArrayList<>();

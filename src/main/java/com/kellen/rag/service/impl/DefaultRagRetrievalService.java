@@ -1,15 +1,16 @@
 package com.kellen.rag.service.impl;
 
 import com.kellen.rag.client.RagEngineClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.kellen.rag.config.RagVectorProperties;
+import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.VectorSearchHit;
 import com.kellen.rag.service.RagRetrievalService;
 import com.kellen.rpc.rag.RagRetrievalChunkRpcDTO;
 import com.kellen.rpc.rag.RagRetrievalRpcDTO;
 import com.kellen.rpc.rag.RagRetrievalRpcRequest;
 import com.kellen.utils.context.TenantContextHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -34,6 +35,15 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
 
     @Override
     public RagRetrievalRpcDTO retrieve(RagRetrievalRpcRequest request) {
+        return retrieveFromEngine(request, false);
+    }
+
+    @Override
+    public RagRetrievalRpcDTO retrieveCanary(RagRetrievalRpcRequest request) {
+        return retrieveFromEngine(request, true);
+    }
+
+    private RagRetrievalRpcDTO retrieveFromEngine(RagRetrievalRpcRequest request, boolean canary) {
         RagRetrievalRpcDTO response = new RagRetrievalRpcDTO();
         response.setEnabled(properties.isEnabled());
         response.setMatched(false);
@@ -45,6 +55,9 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
             return response;
         }
         if (!properties.isEnabled()) {
+            if (canary) {
+                throw ExternalServiceException.httpFailure("RAG engine", 503);
+            }
             response.setMessage("RAG retrieval is disabled");
             return response;
         }
@@ -72,9 +85,11 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
             int contextLimit = request.getMaxContextCharacters() == null
                     ? properties.getMaxContextCharacters()
                     : Math.min(Math.max(request.getMaxContextCharacters(), 1000), 30000);
-            // 唯一检索实现由引擎提供；失败直接返回兼容降级，不能叠加另一条超时链。
-            List<VectorSearchHit> ordered = engineClient.retrieve(request.getQuery().trim(), knowledgeBase, topK,
-                    candidates, threshold, contextLimit);
+            // 只请求同一引擎一次；灰度 RPC 要求完整结果，普通调用保留原有降级行为。
+            String query = request.getQuery().trim();
+            List<VectorSearchHit> ordered = canary
+                    ? engineClient.retrieveCanary(query, knowledgeBase, topK, candidates, threshold, contextLimit)
+                    : engineClient.retrieve(query, knowledgeBase, topK, candidates, threshold, contextLimit);
             List<RagRetrievalChunkRpcDTO> chunks = ordered.stream()
                     .limit(topK)
                     .map(this::toChunk)
@@ -94,6 +109,9 @@ public class DefaultRagRetrievalService implements RagRetrievalService {
         } catch (RuntimeException exception) {
             log.warn("rag_retrieval mode={} outcome=unavailable error_type={} elapsed_ms={}", mode,
                     exception.getClass().getSimpleName(), (System.nanoTime() - started) / 1_000_000);
+            if (canary) {
+                throw ExternalServiceException.httpFailure("RAG engine", 503);
+            }
             response.setMessage("RAG retrieval is temporarily unavailable");
             return response;
         }

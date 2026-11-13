@@ -15,4 +15,9 @@ public interface RagRetrievalService {
      * @return 检索结果
      */
     RagRetrievalRpcDTO retrieve(RagRetrievalRpcRequest request);
+
+    /**
+     * 灰度 RPC 检索要求引擎提供完整结果；检索不可用时终止调用。
+     */
+    RagRetrievalRpcDTO retrieveCanary(RagRetrievalRpcRequest request);
 }

@@ -1,5 +1,6 @@
 package com.kellen.rag.observability;
 
+import com.kellen.rag.exception.ExternalServiceException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.StatusCode;
@@ -16,7 +17,8 @@ public class RagBusinessObservation {
     private final MeterRegistry registry;
     public RagBusinessObservation(MeterRegistry registry) { this.registry = registry; }
 
-    @Around("execution(* com.kellen.rag.service.impl.DefaultRagRetrievalService.retrieve(..))")
+    @Around("execution(* com.kellen.rag.service.impl.DefaultRagRetrievalService.retrieve(..))"
+            + " || execution(* com.kellen.rag.service.impl.DefaultRagRetrievalService.retrieveCanary(..))")
     public Object observe(ProceedingJoinPoint invocation) throws Throwable {
         long started = System.nanoTime();
         var span = GlobalOpenTelemetry.getTracer("fleet.business").spanBuilder("rag.retrieval").startSpan();
@@ -28,6 +30,9 @@ public class RagBusinessObservation {
                     : "RAG retrieval is temporarily unavailable".equals(response.getMessage()) ? "unavailable"
                     : "no knowledge matched".equals(response.getMessage()) ? "unmatched" : "rejected";
             return result;
+        } catch (ExternalServiceException unavailable) {
+            outcome = "unavailable";
+            throw unavailable;
         } finally {
             span.setAttribute("business.outcome", outcome);
             if (java.util.Set.of("error", "unavailable", "business_error", "protocol_error").contains(outcome))

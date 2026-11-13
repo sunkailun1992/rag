@@ -4,11 +4,16 @@ import com.kellen.rag.config.RagEngineProperties;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.ParsedKnowledgeDocument;
+import com.kellen.rag.rpc.RagRetrievalRpcServiceImpl;
 import com.kellen.rag.service.impl.DefaultRagRetrievalService;
 import com.kellen.rpc.rag.RagRetrievalRpcDTO;
 import com.kellen.rpc.rag.RagRetrievalRpcRequest;
+import com.kellen.rpc.rag.RagRetrievalRpcService;
+import com.kellen.traffic.CanaryContext;
+import com.kellen.traffic.CanaryGrant;
 import com.kellen.utils.context.TenantContextHolder;
 import com.sun.net.httpserver.HttpServer;
+import org.apache.dubbo.rpc.RpcException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +27,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +57,7 @@ class RagEngineContractIntegrationTest {
     @Autowired private RagVectorProperties vector;
     @Autowired private ObjectMapper mapper;
     @Autowired private DefaultRagRetrievalService retrievalService;
+    @Autowired private RagRetrievalRpcService retrievalRpc;
     @MockitoBean private EmbeddingClient embedding;
     @MockitoBean private VectorStoreClient vectors;
     private HttpServer server;
@@ -66,7 +73,7 @@ class RagEngineContractIntegrationTest {
 
     @Configuration(proxyBeanMethods = false)
     @Import({RagEngineClient.class, RagEngineProperties.class, RagVectorProperties.class,
-            DefaultRagRetrievalService.class})
+            DefaultRagRetrievalService.class, RagRetrievalRpcServiceImpl.class})
     static class TestConfig {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
     }
@@ -116,6 +123,7 @@ class RagEngineContractIntegrationTest {
     @AfterEach
     void shutdownUpstream() {
         TenantContextHolder.clear();
+        CanaryContext.clear();
         server.stop(0);
         executor.shutdownNow();
     }
@@ -146,6 +154,58 @@ class RagEngineContractIntegrationTest {
         }
         assertThat(requests.get()).isEqualTo(2);
         verifyNoInteractions(embedding, vectors);
+    }
+
+    @Test
+    void canaryRpcExposesEngineFailureWithoutChangingOrdinaryRpcOrHttpRetrieval() {
+        status = 503;
+        response = "{\"error\":\"synthetic-private-engine-details\"}";
+        assertThat(retrievalRpc.retrieve(retrievalRequest()).getMessage())
+                .isEqualTo("RAG retrieval is temporarily unavailable");
+
+        bindCanary();
+        assertThatThrownBy(() -> retrievalRpc.retrieve(retrievalRequest()))
+                .isInstanceOf(RpcException.class).hasMessage("RAG_CANARY_ENGINE_UNAVAILABLE").hasNoCause();
+        assertThat(retrieveThroughService().getMessage()).isEqualTo("RAG retrieval is temporarily unavailable");
+        assertThat(requests.get()).isEqualTo(3);
+        verifyNoInteractions(embedding, vectors);
+    }
+
+    @Test
+    void canaryRpcRejectsEngineDegradationButKeepsHealthyNoMatch() throws Exception {
+        bindCanary();
+        for (Map<String, Object> flags : List.of(
+                Map.<String, Object>of("degraded", true),
+                Map.<String, Object>of("graphDegraded", true),
+                Map.<String, Object>of("graphDegraded", "true"))) {
+            Map<String, Object> engineResponse = new LinkedHashMap<>(flags);
+            engineResponse.put("mode", "dense");
+            engineResponse.put("hits", List.of());
+            response = mapper.writeValueAsString(engineResponse);
+
+            if (flags.containsKey("graphDegraded")) {
+                assertThat(retrieveThroughService().getMessage()).isEqualTo("no knowledge matched");
+            }
+            assertThatThrownBy(() -> retrievalRpc.retrieve(retrievalRequest()))
+                    .isInstanceOf(RpcException.class).hasMessage("RAG_CANARY_ENGINE_UNAVAILABLE");
+        }
+        response = mapper.writeValueAsString(Map.of("mode", "dense", "hits", List.of()));
+        RagRetrievalRpcDTO healthy = retrievalRpc.retrieve(retrievalRequest());
+        assertThat(healthy.getMessage()).isEqualTo("no knowledge matched");
+        assertThat(healthy.isMatched()).isFalse();
+        assertThat(healthy.getContext()).isEmpty();
+        assertThat(requests.get()).isEqualTo(6);
+        verifyNoInteractions(embedding, vectors);
+    }
+
+    @Test
+    void canaryRpcDistinguishesDisabledRetrievalWithoutCallingEngine() {
+        vector.setEnabled(false);
+        assertThat(retrievalRpc.retrieve(retrievalRequest()).getMessage()).isEqualTo("RAG retrieval is disabled");
+        bindCanary();
+        assertThatThrownBy(() -> retrievalRpc.retrieve(retrievalRequest()))
+                .isInstanceOf(RpcException.class).hasMessage("RAG_CANARY_ENGINE_UNAVAILABLE").hasNoCause();
+        assertThat(requests.get()).isZero();
     }
 
     @Test
@@ -331,9 +391,18 @@ class RagEngineContractIntegrationTest {
     private List<?> retrieve() { return client.retrieve("synthetic query", "contract-test", 6, 30, .2, 12000); }
 
     private RagRetrievalRpcDTO retrieveThroughService() {
+        return retrievalService.retrieve(retrievalRequest());
+    }
+
+    private RagRetrievalRpcRequest retrievalRequest() {
         RagRetrievalRpcRequest request = new RagRetrievalRpcRequest();
         request.setQuery("synthetic query");
-        return retrievalService.retrieve(request);
+        return request;
+    }
+
+    private void bindCanary() {
+        CanaryContext.set(new CanaryContext.Snapshot(
+                new CanaryGrant("ai", "blue", Instant.parse("2099-01-01T00:00:00Z")), "synthetic-grant"));
     }
 
     private String header(String name) {
