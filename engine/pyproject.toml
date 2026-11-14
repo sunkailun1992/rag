@@ -1,6 +1,6 @@
 [project]
 name = "kellen-rag-engine"
-version = "0.3.0"
+version = "0.3.1"
 description = "Java RAG 的受控文档解析与检索引擎"
 requires-python = ">=3.12,<3.13"
 dependencies = [

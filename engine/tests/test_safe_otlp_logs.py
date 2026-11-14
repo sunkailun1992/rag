@@ -99,7 +99,7 @@ async def test_asgi_safe_event_logs_share_real_server_and_child_context(settings
     for record in records:
         assert dict(record.resource.attributes) == {
             "service.name": "rag-engine",
-            "service.version": "0.3.0",
+            "service.version": "0.3.1",
             "deployment.environment.name": "github-dev",
         }
         assert "SYNTHETIC_PRIVATE" not in json.dumps(dict(record.log_record.attributes))
@@ -348,7 +348,7 @@ async def test_real_otlp_http_uses_same_authority_headers_and_protobuf_context(s
     resource = log_message.resource_logs[0].resource
     assert {attribute.key: attribute.value.string_value for attribute in resource.attributes} == {
         "service.name": "rag-engine",
-        "service.version": "0.3.0",
+        "service.version": "0.3.1",
         "deployment.environment.name": "github-dev",
     }
 

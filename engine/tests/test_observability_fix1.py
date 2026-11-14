@@ -87,7 +87,7 @@ def test_production_uvicorn_stderr_is_jsonl_and_stdout_stays_empty(settings):
             "rag_dependency_diagnostic",
         }
         assert all(
-            event["service"] == {"name": "rag-engine", "version": "0.3.0", "environment": "review-test"}
+            event["service"] == {"name": "rag-engine", "version": "0.3.1", "environment": "review-test"}
             for event in events
         )
 

@@ -15,7 +15,13 @@ from rag_engine.models import Hit, RetrievalRequest
 
 # 每一端都受自己的文档活动 generation 及来源身份约束。同名实体仅在本租户/KB 内连接。
 # 不执行模型 Cypher，不从无命中的请求开始全图遍历。
+# 本租户/KB 的活动文档只解析一次；每个名称只留 pointId 最小的 $limit 个合格候选，
+# 全局前 $limit 个必在其中（切片 ID 由 tenant/KB/generation/pointId 派生，候选按 pointId 唯一），
+# 结果与逐候选扫描文档、全量展开同名实体时相同，高频实体不再放大扩展与去重。
 NEIGHBOR_QUERY = """
+MATCH (doc:RagGraphDocument {tenant:$tenant,knowledgeBase:$kb})
+WHERE doc.activeGeneration IS NOT NULL
+WITH collect([doc.documentId, doc.activeGeneration]) AS active
 UNWIND $seeds AS a
 MATCH (d:RagGraphDocument {key:a.documentKey,tenant:$tenant,knowledgeBase:$kb})
 WHERE d.activeGeneration IS NOT NULL
@@ -24,19 +30,18 @@ MATCH (c:Chunk {tenant_id:$tenant,knowledge_base:$kb,generation:d.activeGenerati
       -[:MENTIONS]->(s:__Entity__)
 WHERE s.tenant_id=$tenant AND s.knowledge_base=$kb AND s.generation=d.activeGeneration
   AND s.point_id=a.pointId AND s.source_key=a.sourceKey AND s.document_id=a.documentId
-WITH DISTINCT s.canonical_name AS canonical ORDER BY canonical LIMIT 40
-CALL (canonical) {
+WITH DISTINCT active, s.canonical_name AS canonical ORDER BY canonical LIMIT 40
+CALL (active, canonical) {
   MATCH (t:__Entity__ {tenant_id:$tenant,knowledge_base:$kb,canonical_name:canonical})
   USING INDEX SEEK t:__Entity__(tenant_id,knowledge_base,canonical_name)
-  RETURN t
+  WHERE [t.document_id, t.generation] IN active AND NOT t.point_id IN $excluded
+  MATCH (t)<-[:MENTIONS]-(candidate:Chunk {tenant_id:$tenant,knowledge_base:$kb})
+  WHERE candidate.generation=t.generation AND t.point_id=candidate.point_id
+    AND t.source_key=candidate.source_key AND t.document_id=candidate.document_id
+  WITH DISTINCT candidate ORDER BY candidate.point_id LIMIT $limit
+  RETURN candidate
 }
-WITH DISTINCT t
-MATCH (t)<-[:MENTIONS]-(candidate:Chunk {tenant_id:$tenant,knowledge_base:$kb})
-MATCH (target:RagGraphDocument {tenant:$tenant,knowledgeBase:$kb,
-                               documentId:candidate.document_id,activeGeneration:candidate.generation})
-WHERE t.generation=target.activeGeneration AND candidate.generation=target.activeGeneration
-  AND t.point_id=candidate.point_id AND t.source_key=candidate.source_key
-  AND t.document_id=candidate.document_id AND NOT candidate.point_id IN $excluded
+WITH DISTINCT candidate
 RETURN DISTINCT candidate.point_id AS pointId,candidate.source_key AS sourceKey,
        candidate.source_json AS sourceJson,candidate.tenant_id AS tenant,
        candidate.knowledge_base AS knowledgeBase,candidate.generation AS generation
