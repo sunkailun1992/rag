@@ -21,11 +21,15 @@ from rag_engine.errors import (
 from rag_engine.graph_models import ActiveGraphSource, GraphBuildRequest
 from rag_engine.graph_query import aggregate_graph
 from rag_engine.graph_repository import GraphRepository
+from rag_engine.graph_retrieval import warm_retrieval_plans
 from rag_engine.graph_sources import evidence_excerpt, read_active_sources
 from rag_engine.graph_worker import safe_worker_diagnostic, sanitize_worker_diagnostic
 from rag_engine.observability import WORKER_FAILURE_CLASSES, Observability, failure_result, stage
 
 logger = logging.getLogger("rag_engine.graph")
+# 首次立即预编译，此后定期复查：计划已缓存时每轮只是几次毫秒级 EXPLAIN；
+# 重启、统计变化或新档位引起的重新编译在请求外完成。
+PLAN_WARMUP_INTERVAL_SECONDS = 30
 
 
 async def run_worker(payload, settings, remaining: float):
@@ -171,6 +175,7 @@ class GraphManager:
         self.owner = str(uuid.uuid4())
         self.repository = repository or GraphRepository(settings, self.owner)
         self.tasks = []
+        self.plan_warmup = None
         self._started = False
         self.observability = observability or Observability(settings)
         self.submission_contexts = {}
@@ -197,14 +202,28 @@ class GraphManager:
         self._started = False
         await self.repository.start()
         self.tasks = [asyncio.create_task(self.heartbeat()), asyncio.create_task(self.pump())]
+        if self.settings.graph_retrieval_enabled:
+            # 尽力而为的性能保障，不计入就绪任务；预编译失败时请求仍按原预算编译，超时即降级。
+            self.plan_warmup = asyncio.create_task(self.warm_plans())
         self._started = True
 
     async def stop(self):
         self._started = False
-        for task in self.tasks:
+        tasks = [*self.tasks, *([self.plan_warmup] if self.plan_warmup else [])]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self.tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.plan_warmup = None
         await self.repository.stop()
+
+    async def warm_plans(self):
+        while True:
+            try:
+                await warm_retrieval_plans(self.repository)
+            except Exception:
+                # 不记录驱动异常正文；下一周期重试。
+                logger.warning("rag_graph_plan_warmup_failed code=GRAPH_STORE_UNAVAILABLE")
+            await asyncio.sleep(PLAN_WARMUP_INTERVAL_SECONDS)
 
     async def heartbeat(self):
         try:

@@ -12,6 +12,9 @@ from rag_engine.errors import EngineError
 from rag_engine.graph_models import GraphBuild, GraphBuildRequest
 from rag_engine.graph_sources import digest, document_key, source_key
 
+# 预编译只做 EXPLAIN、不读写数据；高负载 NAS 上复杂查询编译可达数秒，不沿用交互查询的三秒事务预算。
+PLAN_WARMUP_TIMEOUT_SECONDS = 30
+
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -85,6 +88,13 @@ class GraphRepository:
             database_=self.settings.neo4j_database,
         )
         return [record.data() for record in records]
+
+    async def explain(self, query, **params):
+        await self.driver.execute_query(
+            Query(query, timeout=PLAN_WARMUP_TIMEOUT_SECONDS),
+            parameters_=params,
+            database_=self.settings.neo4j_database,
+        )
 
     @asynccontextmanager
     async def transaction(self):

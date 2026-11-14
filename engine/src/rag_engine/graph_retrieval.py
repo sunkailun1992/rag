@@ -53,6 +53,47 @@ RETURN c.point_id AS pointId,c.source_key AS sourceKey,c.generation AS generatio
 LIMIT 20
 """
 
+# Neo4j 按查询文本、参数类型和列表参数大小档位缓存执行计划；5.26 实测档位为 1、2–10、11–100，
+# 换档即重新编译。NAS 高负载时编译要数百毫秒到数秒，在 0.4 秒局部预算内被取消就不会写入缓存，
+# 下次请求又从头编译。每个档位用同类型代表参数预先 EXPLAIN，把编译移到请求之外；
+# 请求中 seeds/excluded 至多 100 项，sources 至多 20 项。
+NEIGHBOR_WARMUP_SIZES = (1, 10, 100)
+PUBLICATION_WARMUP_SIZES = (1, 10, 20)
+WARMUP_SCOPE = "plan-warmup"
+
+
+def _warmup_sources(size: int, *, generation: bool) -> list[dict]:
+    sources = []
+    for index in range(size):
+        value = f"{WARMUP_SCOPE}-{index}"
+        source = {"documentKey": value, "documentId": value, "pointId": value, "sourceKey": value}
+        if generation:
+            source["generation"] = WARMUP_SCOPE
+        sources.append(source)
+    return sources
+
+
+def plan_warmup_statements() -> list[tuple[str, dict]]:
+    """参数只决定类型与档位，不对应真实租户、知识库或来源；EXPLAIN 只编译不读写数据。"""
+    statements = []
+    for size in NEIGHBOR_WARMUP_SIZES:
+        seeds = _warmup_sources(size, generation=False)
+        params = {"tenant": WARMUP_SCOPE, "kb": WARMUP_SCOPE, "seeds": seeds, "limit": 20}
+        params["excluded"] = [seed["pointId"] for seed in seeds]
+        statements.append(("EXPLAIN " + NEIGHBOR_QUERY, params))
+    for size in PUBLICATION_WARMUP_SIZES:
+        sources = _warmup_sources(size, generation=True)
+        statements.append(
+            ("EXPLAIN " + PUBLICATION_QUERY, {"tenant": WARMUP_SCOPE, "kb": WARMUP_SCOPE, "sources": sources})
+        )
+    return statements
+
+
+async def warm_retrieval_plans(repository) -> None:
+    """按固定顺序预编译；失败由调用方记录并在下一周期重试。"""
+    for query, params in plan_warmup_statements():
+        await repository.explain(query, **params)
+
 
 @dataclass
 class GraphAugmentation:

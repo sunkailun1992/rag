@@ -101,6 +101,7 @@ SAFE_TEMPLATES = frozenset(
         "rag_graph_parent_cleanup_failed data=%s",
         "rag_graph_parent_failed data=%s",
         "rag_graph_parent_stage_failed data=%s",
+        "rag_graph_plan_warmup_failed code=GRAPH_STORE_UNAVAILABLE",
         "rag_graph_scheduler_failed code=GRAPH_STORE_UNAVAILABLE",
         "rag_graph_worker_diagnostic data=%s",
         "rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST",
