@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     graph_max_triplets_per_chunk: int = Field(default=12, ge=1, le=32)
     graph_max_edges: int = Field(default=2000, ge=1, le=4000)
     graph_lease_seconds: int = Field(default=30, ge=10, le=120)
+    # 图 worker 空闲时两次领取任务的间隔（秒）；每次领取都是一次 Neo4j 写事务，本进程提交的新任务会立即唤醒。
+    graph_idle_poll_seconds: float = Field(default=5, ge=0.1, le=60, allow_inf_nan=False)
 
     @field_validator("neo4j_url")
     @classmethod

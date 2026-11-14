@@ -66,7 +66,7 @@ def test_coded_background_failure_exports_real_error_severity_without_fabricatin
     }
     assert dict(record.resource.attributes) == {
         "service.name": "rag-engine",
-        "service.version": "0.3.1",
+        "service.version": "0.3.2",
         "deployment.environment.name": "github-dev",
     }
 

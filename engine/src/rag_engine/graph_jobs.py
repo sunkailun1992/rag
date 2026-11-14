@@ -176,6 +176,8 @@ class GraphManager:
         self.repository = repository or GraphRepository(settings, self.owner)
         self.tasks = []
         self.plan_warmup = None
+        # 本进程提交新任务后唤醒空闲 pump，不必等满空闲间隔。
+        self.wakeup = asyncio.Event()
         self._started = False
         self.observability = observability or Observability(settings)
         self.submission_contexts = {}
@@ -246,6 +248,14 @@ class GraphManager:
                 if task is not asyncio.current_task():
                     task.cancel()
 
+    async def idle_wait(self):
+        # 每轮领取都是一次 Neo4j 写事务（worker 锁计数）；空闲间隔过短会在 NAS 机械盘上形成持续小写入。
+        # 先等待再清除：等待期间到达的唤醒不会丢失，清除后紧接着的一轮领取会取到已持久化的新任务。
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(self.settings.graph_idle_poll_seconds):
+                await self.wakeup.wait()
+        self.wakeup.clear()
+
     async def pump(self):
         while True:
             try:
@@ -253,7 +263,7 @@ class GraphManager:
                 if claimed is None:
                     with contextlib.suppress(Exception):
                         await self.repository.cleanup_pending()
-                    await asyncio.sleep(0.5)
+                    await self.idle_wait()
                     continue
                 job = claimed["job"]
                 submitted = self.submission_contexts.pop(job["buildId"], None)
@@ -338,6 +348,8 @@ class GraphManager:
             if not self.is_ready():
                 raise EngineError("GRAPH_WORKER_UNAVAILABLE", 503)
             result = await self.repository.submit(tenant, request, str(uuid.uuid4()))
+            if result.status == "QUEUED":
+                self.wakeup.set()
             context = trace.get_current_span().get_span_context()
             if context.is_valid and result.status in {"QUEUED", "RUNNING"}:
                 # 只保留本进程有界排队任务的关联；重启恢复任务没有提交link。
