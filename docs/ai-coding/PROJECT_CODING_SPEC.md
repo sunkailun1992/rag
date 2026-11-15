@@ -409,10 +409,10 @@ OpenAPI / OpenAPI3 文档规则：
 失败：
 
 ```java
-return ApiResponse.fail(ReturnCode.用户密码错误, "用户名或密码错误");
+return ApiResponse.fail(ReturnCode.USER_PASSWORD_ERROR, "用户名或密码错误");
 ```
 
-接口响应字段统一为 `success`、`code`、`msg`、`data`、`errorMessage`、`timestamp`。不要新建临时 `Map<String, Object>` 作为接口统一响应壳。具体业务对象可以是 DTO、VO 或 `Map`，但最外层必须是 `ApiResponse`。
+接口响应字段统一为 `success`、`code`、`data`、`errorMessage`、`traceId`、`timestamp`。不要新建临时 `Map<String, Object>` 作为接口统一响应壳。具体业务对象可以是 DTO、VO 或 `Map`，但最外层必须是 `ApiResponse`。
 
 ## 权限规范
 
