@@ -24,10 +24,8 @@
 |---|---|---|
 | 本地引导 | `application*.yml`，私有 `config/application-dev.properties` | 连接 Nacos 前需要的服务与环境入口；私有文件不进 Git |
 | 共享变量 | `reuse-configuration.yaml` | 跨文件引用的中间件地址、Dubbo 分组等 `custom.*` 变量 |
-| 共享基础设施 | `redis.yaml`、`rabbitmq.yaml`、`elasticsearch.yaml`、`qdrant.yaml`、`dubbo.yaml`、`mybatis-plus.yaml`、`seata.yaml`、`storage.yaml` | 中间件连接、隔离边界及模块开关；存储使用 X File Storage / MinIO |
-| 安全与可观测性 | `security-auth.yaml`、`security-jwt.yaml`、`actuator.yaml`、`logging.yml`、`traffic-governance.yaml`、`swagger.yaml` | 认证/租户、人员 JWT、管理端点、日志、流量治理及监控 |
-| 共享 AI 协议 | `a2a.yaml` | A2A 租户、协议入口、提供方和注册契约 |
-| 共享 AI 模型 | `ai-model-secrets.yaml` | 模型选择及私有凭据占位符，按实际消费者导入 |
+| 共享基础设施 | `redis.yaml`、`dubbo.yaml`、`mybatis-plus.yaml`、`seata.yaml` | 中间件连接、隔离边界及模块开关 |
+| 安全与可观测性 | `security-auth.yaml`、`security-jwt.yaml`、`actuator.yaml`、`logging.yml`、`traffic-governance.yaml`、`local-canary.yaml`、`swagger.yaml` | 认证/租户、人员 JWT、管理端点、日志、流量治理及监控 |
 | 服务配置 | `{service}-spring.yaml` | 同一服务的数据源、模型选择、路由及服务专属参数；共享配置仍独立维护 |
 
 本服务使用 `rag.vector.*` 与 `rag.engine.*`；三个 profile 不导入 `ai-model-secrets.yaml`，不加载无关的 Google 凭据/模型名。Python Engine 的 `RAG_ENGINE_*` 环境配置独立管理，本项不改变它。删除无关导入不会清理既有进程的内存，须以受控重启及目标环境读回为准；不删除共享 dataId 或改变其它消费者。
@@ -38,8 +36,8 @@
 
 - 相同配置职责和完整键的归属必须明确，不能靠未说明的重复键覆盖完成迁移；绑定类、消费者、引用关系与必要覆盖顺序一并记录。
 - `reuse-configuration.yaml` 只承载共享变量；Nacos 登录配置来自本地引导，数据库与模型凭据通过私有环境渲染到对应 dataId，不能为省事集中到公开文档。
-- `storage.yaml` 维护通用存储；个人服务不导入公司的 OSS/SMS/钉钉/医疗业务配置。`security-jwt.yaml` 与 `security-auth.yaml` 分别维护签名参数和认证/租户规则，不能因为一个服务不导入后者而宣称它不使用 JWT。
-- 命名空间隔离之外，继续保持现有数据库、Redis 库号、RabbitMQ vhost、Dubbo group、Qdrant collection、ES 索引和对象存储前缀边界。注释不得暗改这些实际值。
+- `storage.yaml` 已退役删除，存储连接和策略在 AI 控制台数据库管理；个人服务不导入公司的 OSS/SMS/钉钉/医疗业务配置。`security-jwt.yaml` 与 `security-auth.yaml` 分别维护签名参数和认证/租户规则，不能因为一个服务不导入后者而宣称它不使用 JWT。
+- 命名空间隔离之外，继续保持现有数据库、Redis 库号、Dubbo group、RAG 的 Qdrant collection 和对象存储前缀边界。注释不得暗改这些实际值。
 - `ai-memory.yaml`、`message.yaml`、`report.yaml` 的空映射已从当前模板与 imports 移除；`ai.yaml`、`ai-agent.yaml`、`mcp.yaml`、`rag.yaml`、`user.yaml` 的参数统一由对应 `{service}-spring.yaml` 提供。旧远端项须在消费者切换验证后清理，不能先删导致旧服务刷新缺配置。
 - `catalog.json` 维护 dataId 描述、分类和消费者，`retired-dataids.json` 维护明确的旧项与替代清单；二者位于唯一模板目录的上层。Dubbo 自动 metadata/mapping 不属于人工配置，不在清理清单内。
 

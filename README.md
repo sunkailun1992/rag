@@ -75,7 +75,7 @@ python3 scripts/verify-rag-engine.py
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com:utils:1.6.7`，跨服务契约固定 `com:rpc-api:1.0.9`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
+- 公共能力依赖 `com:utils:1.6.8`，跨服务契约固定 `com:rpc-api:1.0.9`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
 - 个人与公司共用私有 Maven 地址，utils 分别使用 `com` 与 `com.kellen` group 隔离；Java 包名保持 `com.kellen.*`。
 - 测试框架统一使用 JUnit 5
 
@@ -111,15 +111,12 @@ actuator.yaml
 security-jwt.yaml
 security-auth.yaml
 swagger.yaml
-rag-spring.yaml         # 服务框架、数据源、rag.vector.*、rag.engine.* 及其它服务专属参数
-qdrant.yaml             # Qdrant 向量库连接，RAG 检索入口
+rag-spring.yaml           # 服务框架、数据源、rag.vector.*、rag.engine.* 及其它服务专属参数
 mybatis-plus.yaml
 redis.yaml
-rabbitmq.yaml
-elasticsearch.yaml
 seata.yaml
 dubbo.yaml
-a2a.yaml                # A2A / Nacos AI Registry 共享契约，rag 作为 AI 能力注册方引用 ${custom.a2a-*}
+local-canary.yaml
 ```
 
 ## DDL
