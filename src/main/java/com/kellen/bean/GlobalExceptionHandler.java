@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -27,21 +26,13 @@ public class GlobalExceptionHandler extends ApiExceptionHandler {
     @ExceptionHandler(GraphSubmissionInvalidException.class)
     public ResponseEntity<ApiResponse<Void>> graphSubmissionInvalid(GraphSubmissionInvalidException exception) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.fail(ReturnCode.用户请求参数错误, exception.getMessage()));
+                .body(ApiResponse.fail(ReturnCode.REQUEST_PARAMETER_ERROR, exception.getMessage()));
     }
 
     @ExceptionHandler(GraphSubmissionConflictException.class)
     public ResponseEntity<ApiResponse<Void>> graphSubmissionConflict(GraphSubmissionConflictException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.fail(ReturnCode.用户请求参数错误, exception.getMessage()));
-    }
-
-    /** JSON 语法或请求体类型绑定失败属于客户端错误，不记录可能携带正文的异常消息和堆栈。 */
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResponse<Void>> unreadableRequestBodyException() {
-        log.warn("Request body JSON parsing rejected");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.fail(ReturnCode.用户请求参数错误, "请求体 JSON 格式不正确"));
+                .body(ApiResponse.fail(ReturnCode.REQUEST_PARAMETER_ERROR, exception.getMessage()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -49,7 +40,7 @@ public class GlobalExceptionHandler extends ApiExceptionHandler {
             AccessDeniedException exception, HttpServletRequest request) {
         log.warn("Access denied, uri: [{}]", request.getRequestURI());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.fail(ReturnCode.无权限使用));
+                .body(ApiResponse.fail(ReturnCode.PERMISSION_DENIED));
     }
 
     @ExceptionHandler(ExternalServiceException.class)
@@ -58,15 +49,7 @@ public class GlobalExceptionHandler extends ApiExceptionHandler {
         log.error("External service request failed, service: [{}], status: [{}], uri: [{}]",
                 exception.getServiceName(), exception.getStatusCode(), request.getRequestURI());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(ApiResponse.fail(ReturnCode.中间件服务出错, exception.getPublicMessage()));
+                .body(ApiResponse.fail(ReturnCode.MIDDLEWARE_SERVICE_ERROR, exception.getPublicMessage()));
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> unhandledException(
-            Exception exception, HttpServletRequest request) {
-        log.error("Unhandled request failure, uri: [{}], exception: [{}]",
-                request.getRequestURI(), exception.getClass().getName(), exception);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.fail(ReturnCode.系统执行出错, "系统处理失败，请查看服务日志"));
-    }
 }

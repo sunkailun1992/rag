@@ -18,3 +18,9 @@ spring:
   main:
     # 兼容公共 utils 和业务侧可能重复声明的基础 Bean。
     allow-bean-definition-overriding: true
+  servlet:
+    multipart:
+      # 单个上传文件上限；知识文档上传沿用原先 utils 统一设置的 1GB。
+      max-file-size: 1024MB
+      # 单次请求总大小上限，与单文件上限一致。
+      max-request-size: 1024MB

@@ -159,7 +159,8 @@ class RagControllerSecurityTest {
     @ParameterizedTest
     @ValueSource(strings = {"{\"query\":\"SYNTHETIC_JSON_BODY_NOT_FOR_LOGS", "{\"query\":", "[]"})
     void shouldReturnBadRequestForUnreadableRetrievalJsonWithoutCallingService(String body) throws Exception {
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        // utils 1.6.8 起由公共 ApiExceptionHandler 统一处理请求体解析失败，日志来自它。
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(com.kellen.utils.exception.ApiExceptionHandler.class);
         var captured = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         captured.start();
         logger.addAppender(captured);
@@ -181,7 +182,9 @@ class RagControllerSecurityTest {
             assertThat(captured.list).isNotEmpty().allSatisfy(event -> {
                 assertThat(event.getThrowableProxy()).isNull();
                 assertThat(event.getFormattedMessage()).doesNotContain("SYNTHETIC_JSON_BODY", body);
-                assertThat(event.getArgumentArray()).isNullOrEmpty();
+                // 日志参数只有接口路径、状态码与异常类名，不能带出请求体。
+                assertThat(event.getArgumentArray()).isNotNull()
+                        .noneSatisfy(argument -> assertThat(String.valueOf(argument)).contains("SYNTHETIC_JSON_BODY"));
             });
             verifyNoInteractions(ragRetrievalService);
         } finally {

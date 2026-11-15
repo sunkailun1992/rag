@@ -63,10 +63,6 @@ spring:
       - "optional:nacos:mybatis-plus.yaml?refreshEnabled=true"
       # redis.yaml：Redis 连接配置。
       - "optional:nacos:redis.yaml?refreshEnabled=true"
-      # rabbitmq.yaml：RabbitMQ 连接和消息基础配置。
-      - "optional:nacos:rabbitmq.yaml?refreshEnabled=true"
-      # elasticsearch.yaml：Elasticsearch 连接配置。
-      - "optional:nacos:elasticsearch.yaml?refreshEnabled=true"
       # seata.yaml：Seata 分布式事务客户端配置。
       - "optional:nacos:seata.yaml?refreshEnabled=true"
       # dubbo.yaml：Dubbo RPC、注册中心和协议配置。

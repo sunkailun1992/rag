@@ -34,8 +34,9 @@ class KnowledgeDocumentParserPoiBaselineTest {
 
     @Test
     void xlsxDateAndNumberFormatsKeepBaselineText() throws Exception {
+        // POI 5.5.1 把 08:30:15.678 截断成 15 秒；POI 6 与 Excel 的显示一致，四舍五入为 16 秒，按修正原有错误接受。
         assertThat(contents("m.xlsx", PoiBaselineFixtures.formatWorkbook())).containsExactly(
-                "文档: 基线\n位置: 格式 / 第2行\n表头语义与记录:\n- 时间: 2026-11-15 08:30:15\n- 比例: 12.34%\n- 金额: 1,234,567.89");
+                "文档: 基线\n位置: 格式 / 第2行\n表头语义与记录:\n- 时间: 2026-11-15 08:30:16\n- 比例: 12.34%\n- 金额: 1,234,567.89");
     }
 
     @Test
