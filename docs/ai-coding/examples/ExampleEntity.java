@@ -1,7 +1,7 @@
 package com.kellen.example.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.kellen.bean.EntityBase;
+import com.kellen.entity.TenantEntityBase;
 import com.kellen.example.entity.enums.ExampleStateEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
@@ -10,11 +10,9 @@ import lombok.Setter;
 /**
  * 示例业务对象。
  * <p>
- * AI 新增实体时，应继承 EntityBase，并只声明当前业务表自己的字段。
- * 公共字段 id、code、description、createDateTime、createName、modifyDateTime、
- * modifyName、isDelete、label、sorting、version、tenantId 已由 EntityBase 统一承接。
- * DDL 默认还包含 type/state；它们不在 EntityBase 中，业务代码需要读写时
- * 由当前实体自行声明。
+ * AI 新增实体时，有租户的表继承 TenantEntityBase（无租户的继承 EntityBase）。
+ * 基类已有 id、code、description、审计字段、deleted、label、sorting、乐观锁 version，租户表另有 tenantId、createDept，
+ * 实体只声明业务字段；type、state 等用到才由当前实体声明。
  *
  * @author sunkailun
  * @className ExampleEntity
@@ -24,7 +22,7 @@ import lombok.Setter;
 @Setter
 @TableName("example_record")
 @Schema(description = "示例业务对象")
-public class ExampleEntity extends EntityBase {
+public class ExampleEntity extends TenantEntityBase {
 
     /**
      * 示例名称。
@@ -36,7 +34,7 @@ public class ExampleEntity extends EntityBase {
      * 示例状态。
      * <p>
      * state 是业务状态字段，必须由当前业务模块定义自己的 IEnum，
-     * 不要把业务状态枚举放入 EntityBase。
+     * 不要把业务状态枚举放入实体基类。
      */
     @Schema(description = "示例状态")
     private ExampleStateEnum state;

@@ -18,6 +18,79 @@ spring:
   main:
     # 兼容公共 utils 和业务侧可能重复声明的基础 Bean。
     allow-bean-definition-overriding: true
+  datasource:
+    # dynamic-datasource 原生配置：master、gray 两个 Druid 池；各库地址与账号在 Nacos 的 {service}-spring.yaml。
+    dynamic:
+      # 默认数据源，未指定 @DS 或灰度路由时使用。
+      primary: master
+      # 找不到指定数据源时直接报错，不悄悄回落到默认库。
+      strict: true
+      # 固定开启 Seata AT，给每个池包 Seata 代理；新空库首次启动由 utils 在建池之前先执行 Flyway，建出 undo_log。
+      seata: true
+      # Seata 代理模式，AT 依赖 undo_log。
+      seata-mode: AT
+      # 两个池共用的 Druid 参数；单位毫秒的注明毫秒。
+      druid:
+        # 启动时建立的连接数。
+        initial-size: 1
+        # 最少保留的空闲连接数。
+        min-idle: 1
+        # 借连接最多等待 3000 毫秒，禁止无限等待。
+        max-wait: 3000
+        # 建立连接超时 3000 毫秒；JDBC URL 不带 connectTimeout，否则 Druid 会把其中的秒数当毫秒覆盖这里。
+        connect-timeout: 3000
+        # 读取超时 30000 毫秒；JDBC URL 不带 socketTimeout，理由同上。
+        socket-timeout: 30000
+        # 借出前与空闲检测用的校验语句。
+        validation-query: SELECT 1
+        # 校验语句超时，单位秒。
+        validation-query-timeout: 3
+        # 借出前校验，淘汰数据库已关闭的连接。
+        test-on-borrow: true
+        # 空闲检测时校验连接。
+        test-while-idle: true
+        # 保活最小空闲连接，降低首个请求命中失效连接的概率。
+        keep-alive: true
+        # 空闲检测间隔 30000 毫秒。
+        time-between-eviction-runs-millis: 30000
+        # 保活间隔 60000 毫秒，须大于空闲检测间隔，否则 Druid 启动失败。
+        keep-alive-between-time-millis: 60000
+      # 数据源清单，名称与灰度路由的 master、gray 一致。
+      datasource:
+        # 主库连接池。
+        master:
+          # 连接池类型。
+          type: com.alibaba.druid.pool.DruidDataSource
+          # 主库单独的 Druid 参数。
+          druid:
+            # 主库最大连接数；与 gray 合计 6，给调度与维护连接留余量。
+            max-active: 4
+        # 灰度库连接池；当前与主库同库。
+        gray:
+          # 连接池类型。
+          type: com.alibaba.druid.pool.DruidDataSource
+          # 灰度库单独的 Druid 参数。
+          druid:
+            # 灰度库最大连接数。
+            max-active: 2
+  # 表结构只由本服务 src/main/resources/db/migration 的 Flyway 迁移管理；已提交的迁移文件不修改，改结构只新增版本。
+  flyway:
+    # 迁移脚本位置。
+    locations: classpath:db/migration
+    # 已有表但还没有 Flyway 记录的库：把版本 1 登记为基线、不执行，再执行之后的版本。
+    baseline-on-migrate: true
+    # 基线版本，对应 V1__baseline.sql（现有结构快照）。
+    baseline-version: 1
+    # 启动时核对已执行迁移的校验和，发现已发布的迁移文件被改过就停止启动。
+    validate-on-migrate: true
+    # 禁止 clean，防止误删整库。
+    clean-disabled: true
+    # 迁移连接与 master 用同一组地址、账号和密码，单独建连接，不占业务连接池。
+    url: ${spring.datasource.dynamic.datasource.master.url}
+    # 迁移账号，同 master。
+    user: ${spring.datasource.dynamic.datasource.master.username}
+    # 迁移密码，同 master；真实值只在 Nacos 私有配置。
+    password: ${spring.datasource.dynamic.datasource.master.password}
   servlet:
     multipart:
       # 单个上传文件上限；知识文档上传沿用原先 utils 统一设置的 1GB。

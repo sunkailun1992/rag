@@ -171,40 +171,26 @@ GET    /<resources>/count        按 Query 条件统计数量；只有页面确�
 - 无法自然映射为资源 CRUD 的业务动作，也要优先转成资源创建或子资源维护，例如生成报告使用 `POST /report/manage/generation-tasks` 创建生成任务。
 - 旧接口改造为 RESTful 时，必须同步更新 Controller、Service 入参、权限资源初始化 SQL、前端调用、OpenAPI 文档、README 和测试用例。
 
-## DDL 维护规范
+## 表结构维护规范
 
-数据库结构使用 MyBatis-Plus 自动维护 DDL，不在 Controller 或 Service 中执行 `CREATE TABLE`。
-
-项目 DDL 入口：
+数据库结构只由本服务的 Flyway 迁移维护，不在 Controller 或 Service 中执行 `CREATE TABLE`。迁移位置：
 
 ```text
-com.kellen.bean.PostgresqlDdl
-```
-
-SQL 脚本位置：
-
-```text
-src/main/resources/db/postgresql/*.sql
+src/main/resources/db/migration/V<版本>__<说明>.sql
 ```
 
 规则：
 
-- 全新或空业务库首次启动前，必须先在目标业务库手动执行 `../utils/src/main/resources/db/postgresql/common-infra-schema.sql`。Seata AT 的 `DataSourceProxy` 会早于 MyBatis-Plus DDL 检查 `undo_log`，所以不能指望应用首次启动自动建出公共基础表。
-- 修改 `src/main/resources/db/postgresql/*.sql` 前，必须先查看 `PostgresqlDdl#getSqlFiles()` 确认脚本列表和执行顺序。
-- 修改任意已存在 SQL 脚本前，必须连接当前目标数据库查询 `ddl_history`，确认该脚本是否已经执行。
-- 如果 `ddl_history` 已存在该脚本记录，禁止继续修改该 SQL 文件；表结构、默认数据、权限资源树等后续变更必须新增独立 SQL 脚本。
-- 如果无法连接数据库、无法确认 `ddl_history`、或环境不明确，必须按“脚本可能已执行”处理，只能新增 SQL 脚本，不能修改历史 SQL。
-- 只有明确确认 `ddl_history` 没有该脚本记录时，才允许修改该未执行脚本。
-- 原始建表和基础数据脚本一旦在任何环境执行过，后续变更只能新增脚本，不允许把新变更继续塞回原脚本。
-- 新增或修改表结构、默认数据、权限资源树时，新增独立 SQL 脚本并追加到 `PostgresqlDdl#getSqlFiles()`。
-- `PostgresqlDdl#getSqlFiles()` 统一声明脚本路径。
-- 基础字典、默认角色、默认权限资源等初始化数据也写入 DDL SQL 脚本。
-- SQL 脚本必须支持重复执行，使用 `IF NOT EXISTS`、`INSERT ... ON CONFLICT DO NOTHING` 或具备明确租户/主键条件的确定性 `UPDATE`。
-- PostgreSQL 新增字段使用新的增量脚本；`ADD COLUMN IF NOT EXISTS` 只能处理重复执行，仍须核对实际列结构。历史 MySQL SQL 不回改、不在 PostgreSQL 执行。
+- 表结构只由本服务 `src/main/resources/db/migration` 的 Flyway 迁移管理；已提交的迁移文件不修改，改结构只新增 `V<下一个>__<说明>.sql`；新库保持空库，由服务首次启动时的 Flyway 建表，不手工执行任何公共脚本。
+- Seata AT 的 `undo_log` 在 `V1__baseline.sql` 里；数据源块固定 `spring.datasource.dynamic.seata: true`，不设总开关；建池时 Seata AT 代理就检查该表，utils 在创建任何 Bean 之前先执行 Flyway 迁移，新空库首次启动即建出该表。
+- 已有的库由 `baseline-on-migrate: true`、`baseline-version: 1` 接管：版本 1 登记为基线、不执行 `V1__baseline.sql`。
+- 初始化数据也写进迁移；补数据用 `INSERT ... ON CONFLICT DO NOTHING` 或带租户、主键条件的确定性 `UPDATE`。
+- 不删除实体基类对应的列（`id`、`code`、`description`、审计列、`is_deleted`、`label`、`sorting`、`version`、`tenant_id`、`create_dept`），旧列只改名；删其它列或整表的迁移先在 `DO` 块里核对整列（或整表）为空，不为空就 `RAISE EXCEPTION` 让整版回滚。
 - 不再为基础数据新增业务初始化接口，避免启动后还需要人工调用初始化接口。
-- 表结构必须包含 `version`，并由实体继承 `EntityBase.@Version`。
+- 表结构必须包含 `version`，乐观锁字段由 utils `EntityBase` 的 `@Version` 承接。
 - 多租户业务表必须包含 `tenant_id`，业务 SQL 不手写租户条件。
 - 需要参与数据权限的业务主表默认包含 `owner_user_id` 和 `dept_id`：`owner_user_id` 表示数据负责人或归属用户，`dept_id` 表示数据归属部门。
+- 所有租户表都有 `create_dept`（创建部门，插入时自动填）；要按部门过滤的表在 `security.data-permission.table-rules` 里开启，规则指向 `create_dept` 或本表业务含义的部门列。
 - `owner_user_id` 不要求无脑加到所有表；租户表、权限资源表、字典表、登录/初始化类配置表、纯关系表通常不加，除非业务明确需要按负责人过滤。
 - 关系表优先通过主表做权限控制，例如用户角色、角色资源、角色数据范围这类关系表不要为了统一字段而强行补 `owner_user_id`。
 
@@ -215,29 +201,26 @@ src/main/resources/db/postgresql/*.sql
 以下为 PostgreSQL 字段片段；中文字段注释另用 `COMMENT ON COLUMN` 写入实际脚本。修改时间由应用填充器维护，不添加 Seata AT 不支持的触发器。
 
 ```sql
-code varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 编码
-description varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 说明
-create_date_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 创建时间
-create_name varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 创建人
-modify_date_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 修改时间
-modify_name varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 修改人
-is_delete boolean DEFAULT false, -- 删除状态
+id varchar(64) COLLATE fleet_general_ci NOT NULL, -- 主键（字符串雪花ID）
+code varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 编码
+description varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 说明
+create_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 创建时间
+creator varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 创建人
+update_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 更新时间
+updater varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 更新人
+is_deleted boolean DEFAULT false, -- 删除状态
 type int DEFAULT '0', -- 类型（0：默认）
 state int DEFAULT '1', -- 状态（1：启用，2：禁用）
-label varchar(255) COLLATE public.fleet_general_ci DEFAULT NULL, -- 标签
+label varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 标签
 sorting int DEFAULT '0', -- 排序
-version int DEFAULT '1', -- 版本号
-tenant_id varchar(64) COLLATE public.fleet_general_ci NOT NULL -- 租户id
+version int DEFAULT '1', -- 版本号（乐观锁）
+tenant_id varchar(64) COLLATE fleet_general_ci NOT NULL, -- 租户id
+create_dept varchar(64) COLLATE fleet_general_ci DEFAULT NULL -- 创建部门ID
 ```
 
-这些字段中的 `id`、`code`、`description`、`createDateTime`、`createName`、`modifyDateTime`、`modifyName`、`isDelete`、`label`、`sorting`、`version`、`tenantId` 由 `utils` 中的 `com.kellen.entity.EntityBase` 承接。实体默认继承：
+`id`、`code`、`description`、`createTime`、`creator`、`updateTime`、`updater`、`deleted`、`label`、`sorting`、`version` 由 `utils` 的 `com.kellen.entity.EntityBase` 承接（时间、创建人、修改人自动填充，创建人、修改人取当前登录用户ID，没有登录用户时不填），`tenantId` 与 `createDept`（插入时取当前登录用户的部门）由 `TenantEntityBase` 承接；新增实体继承 `TenantEntityBase`（无租户的表继承 `EntityBase`），只声明业务字段。
 
-```java
-public class Xxx extends EntityBase {
-}
-```
-
-`type` 和 `state` 是 DDL 默认治理/状态字段，但不放入 `EntityBase`。业务代码需要读写 `type/state` 时，由当前实体自行声明字段并配套 `IEnum` 或受控枚举；不需要读写时依赖数据库默认值即可。
+`type` 和 `state` 不放入 utils 的实体基类。业务代码需要读写 `type/state` 时，由当前实体自行声明字段并配套 `IEnum` 或受控枚举；不需要读写时依赖数据库默认值即可。
 
 数据库列 `version` 只表示 MyBatis-Plus 乐观锁。业务版本、模板版本、协议版本、Prompt 版本必须使用明确列名，例如 `template_version`、`prompt_version`、`protocol_version`，不得复用 `version`。
 
@@ -513,11 +496,11 @@ security:
 
 ## 逻辑删除规范
 
-`EntityBase.isDelete` 使用 `@TableLogic`。
+`EntityBase.deleted`（列 `is_deleted`）使用 `@TableLogic`。
 
 规则：
 
-- 查询条件不要重复写 `is_delete = 0`。
+- 查询条件不要重复写 `is_deleted = false`。
 - 删除优先使用 MyBatis-Plus 逻辑删除能力。
 
 ## README 维护规范
@@ -542,7 +525,7 @@ AI 每次新增模块时必须检查：
 - 是否给业务枚举实现 `IEnum`。
 - 是否给数据库状态字段建立对应枚举，且枚举实现 `IEnum<Integer>` 或匹配的泛型类型。
 - 是否避免把业务枚举塞进 `EntityBase`。
-- 是否避免重复拼 `tenant_id` 和 `is_delete`。
+- 是否避免重复拼 `tenant_id` 和 `is_deleted`。
 - 是否把跨服务通用数据权限逻辑放到 `utils`，业务服务只维护用户部门、角色数据范围和业务表字段。
 - 是否在先查后改的更新逻辑中携带数据库记录的 `version`，并依赖 MyBatis-Plus 乐观锁处理并发覆盖。
 - 是否按 `UTILS_PUBLIC_SPEC.md` 选择或扩展错误码。

@@ -50,18 +50,6 @@ public class ExampleBO implements Serializable {
     private ExampleStateEnum state;
 
     /**
-     * 创建人。
-     */
-    @Schema(description = "创建人")
-    private String createName;
-
-    /**
-     * 修改人。
-     */
-    @Schema(description = "修改人")
-    private String modifyName;
-
-    /**
      * 新增校验分组。
      */
     public interface Save {

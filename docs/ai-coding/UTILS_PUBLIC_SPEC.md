@@ -30,7 +30,7 @@
 - 整数状态枚举必须实现 `IEnum<Integer>`，用于接口返回和中文说明输出。
 - `type`、`state` 等业务字段由具体业务模块定义，不写入 `EntityBase`。
 - 多租户字段 `tenant_id` 由框架自动处理，业务 SQL 不重复拼接。
-- 逻辑删除字段 `is_delete` 由 MyBatis-Plus 逻辑删除能力处理，业务查询不重复拼接。
+- 逻辑删除字段 `is_deleted`（实体字段 `deleted`）由 MyBatis-Plus 逻辑删除能力处理，业务查询不重复拼接。
 
 ## 乐观锁规则
 

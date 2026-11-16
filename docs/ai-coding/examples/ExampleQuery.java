@@ -75,8 +75,8 @@ public class ExampleQuery implements Serializable {
      * <p>
      * 该字段不是 Entity 字段，只用于 ServiceQuery 中控制排序字段。
      */
-    @Schema(description = "排序字段", example = "create_date_time")
-    private String collationFields = "create_date_time";
+    @Schema(description = "排序字段", example = "create_time")
+    private String collationFields = "create_time";
 
     /**
      * 模糊查询关键字。

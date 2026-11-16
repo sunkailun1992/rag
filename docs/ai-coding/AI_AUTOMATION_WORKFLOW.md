@@ -83,8 +83,8 @@
 - [ ] 租户字段处理正确。
 - [ ] 逻辑删除字段处理正确。
 - [ ] 乐观锁 version 处理正确。
-- [ ] DDL 脚本按 ddl_history 规则新增或修改。
-- [ ] 全新或空业务库首次启动前，已在目标业务库手动执行 `../utils/src/main/resources/db/common-infra-schema.sql`。
+- [ ] 表结构改动只新增本服务 `src/main/resources/db/migration/V<下一个>__<说明>.sql`，没有修改已提交的迁移文件。
+- [ ] 新库保持空库，由服务首次启动时的 Flyway 建表（含 Seata AT `undo_log`），没有手工执行任何公共脚本。
 
 ## 权限
 - [ ] Controller 权限码正确。

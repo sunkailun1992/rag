@@ -75,7 +75,7 @@ python3 scripts/verify-rag-engine.py
 - MyBatis-Plus
 - Qdrant REST 向量库
 - 千问 `text-embedding-v4`（默认 1024 维）与 `qwen3-rerank`
-- 公共能力依赖 `com:utils:1.6.8`，跨服务契约固定 `com:rpc-api:1.0.9`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
+- 公共能力依赖 `com:utils:1.7.0`，跨服务契约固定 `com:rpc-api:1.0.9`（先完成 Maven Local 消费验证，再发布远端私有 Maven 制品）
 - 个人与公司共用私有 Maven 地址，utils 分别使用 `com` 与 `com.kellen` group 隔离；Java 包名保持 `com.kellen.*`。
 - 测试框架统一使用 JUnit 5
 
@@ -119,17 +119,17 @@ dubbo.yaml
 local-canary.yaml
 ```
 
-## DDL
+## 表结构
 
-文档注册、切片元数据和向量保存在 Qdrant payload；Neo4j 是唯一派生图实现。旧节点/边表和自动建表入口已退役，历史建表 SQL 保留作为历史证据；独立清理候选与回滚边界见 [旧实现清理](docs/legacy-rag-retirement.md)。
-
-全新或空业务库首次启动前，必须先在目标业务库手动执行公共基础设施脚本：
+文档注册、切片元数据和向量保存在 Qdrant payload；Neo4j 是唯一派生图实现，个人 PostgreSQL 库里只有 Seata AT 的 `undo_log`。旧节点/边表的历史建表 SQL 与清理候选已在 1.3.3 删除（Git 历史可查），回滚边界见 [旧实现清理](docs/legacy-rag-retirement.md)。表结构只由本服务的 Flyway 迁移维护：
 
 ```text
-../utils/src/main/resources/db/postgresql/common-infra-schema.sql
+src/main/resources/db/migration/V1__baseline.sql         Seata AT 回滚日志表 undo_log，只在空库执行
+src/main/resources/db/migration/V2__drop_ddl_history.sql 删除旧 DDL 方式的执行记录表
 ```
 
-该脚本只维护 MyBatis-Plus DDL 记录表 `ddl_history` 和 Seata AT 补偿表 `undo_log`。Seata AT 会在 `DataSource` 初始化时先检查 `undo_log`，不能依赖应用首次启动自动创建。业务 SQL 变更前先查 `ddl_history`；已执行或无法确认的脚本不回改，新增变更使用新 SQL 文件并追加到 `PostgresqlDdl#getSqlFiles()`。
+表结构只由本服务 `src/main/resources/db/migration` 的 Flyway 迁移管理；已提交的迁移文件不修改，改结构只新增 `V<下一个>__<说明>.sql`；新库保持空库，由服务首次启动时的 Flyway 建表，不手工执行任何公共脚本。已有的库由 `baseline-on-migrate` 把版本 1 登记为基线、不执行 V1，再执行 V2 起的迁移。Seata AT 的 `undo_log` 在 `V1__baseline.sql` 里；数据源块固定 `spring.datasource.dynamic.seata: true`，不设总开关；建池时 Seata AT 代理就检查该表，utils 在创建任何 Bean 之前先执行 Flyway 迁移，新空库首次启动即建出该表。
+
 
 ## 接口文档
 

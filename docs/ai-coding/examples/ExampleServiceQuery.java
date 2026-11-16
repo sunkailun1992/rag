@@ -24,7 +24,7 @@ public class ExampleServiceQuery {
     /**
      * 默认排序字段。
      */
-    private static final String DEFAULT_SORT_FIELD = "create_date_time";
+    private static final String DEFAULT_SORT_FIELD = "create_time";
 
     /**
      * 允许查询和排序的字段白名单。
@@ -38,10 +38,10 @@ public class ExampleServiceQuery {
             Map.entry("tenant_id", "tenant_id"), // 兼容前端传数据库列名。
             Map.entry("sorting", "sorting"), // 允许按排序值查询和排序。
             Map.entry("version", "version"), // 允许查询乐观锁版本号。
-            Map.entry("createDateTime", "create_date_time"), // 允许按创建时间查询和排序。
-            Map.entry("create_date_time", "create_date_time"), // 兼容前端传数据库列名。
-            Map.entry("modifyDateTime", "modify_date_time"), // 允许按修改时间查询和排序。
-            Map.entry("modify_date_time", "modify_date_time") // 兼容前端传数据库列名。
+            Map.entry("createTime", "create_time"), // 允许按创建时间查询和排序。
+            Map.entry("create_time", "create_time"), // 兼容前端传数据库列名。
+            Map.entry("updateTime", "update_time"), // 允许按更新时间查询和排序。
+            Map.entry("update_time", "update_time") // 兼容前端传数据库列名。
     );
 
     /**
