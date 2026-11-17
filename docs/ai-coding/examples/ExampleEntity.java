@@ -10,7 +10,7 @@ import lombok.Setter;
 /**
  * 示例业务对象。
  * <p>
- * AI 新增实体时，有租户的表继承 TenantEntityBase（无租户的继承 EntityBase）。
+ * AI 新增实体时继承 TenantEntityBase，每张表都必须有全部基础字段。
  * 基类已有 id、code、description、审计字段、deleted、label、sorting、乐观锁 version，租户表另有 tenantId、createDept，
  * 实体只声明业务字段；type、state 等用到才由当前实体声明。
  *

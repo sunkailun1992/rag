@@ -190,13 +190,13 @@ src/main/resources/db/migration/V<版本>__<说明>.sql
 - 表结构必须包含 `version`，乐观锁字段由 utils `EntityBase` 的 `@Version` 承接。
 - 多租户业务表必须包含 `tenant_id`，业务 SQL 不手写租户条件。
 - 需要参与数据权限的业务主表默认包含 `owner_user_id` 和 `dept_id`：`owner_user_id` 表示数据负责人或归属用户，`dept_id` 表示数据归属部门。
-- 所有租户表都有 `create_dept`（创建部门，插入时自动填）；要按部门过滤的表在 `security.data-permission.table-rules` 里开启，规则指向 `create_dept` 或本表业务含义的部门列。
+- 所有表都有 `create_dept`（创建部门，插入时自动填）；要按部门过滤的表在 `security.data-permission.table-rules` 里开启，规则指向 `create_dept` 或本表业务含义的部门列。
 - `owner_user_id` 不要求无脑加到所有表；租户表、权限资源表、字典表、登录/初始化类配置表、纯关系表通常不加，除非业务明确需要按负责人过滤。
 - 关系表优先通过主表做权限控制，例如用户角色、角色资源、角色数据范围这类关系表不要为了统一字段而强行补 `owner_user_id`。
 
 ## 公共字段
 
-数据库业务表默认包含这些公共治理字段。AI 新增表时先写完整字段清单，再补业务字段、索引、唯一约束和初始化数据：
+每张表都必须包含这些基础字段，不得省略（审计字段按 RuoYi-Vue、RuoYi-Vue-Plus、JeecgBoot 等主流项目的多数命名）。AI 新增表时先写完整字段清单，再补业务字段、索引、唯一约束和初始化数据：
 
 以下为 PostgreSQL 字段片段；中文字段注释另用 `COMMENT ON COLUMN` 写入实际脚本。修改时间由应用填充器维护，不添加 Seata AT 不支持的触发器。
 
@@ -205,9 +205,9 @@ id varchar(64) COLLATE fleet_general_ci NOT NULL, -- 主键（字符串雪花ID�
 code varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 编码
 description varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 说明
 create_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 创建时间
-creator varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 创建人
+create_by varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 创建人
 update_time timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP, -- 更新时间
-updater varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 更新人
+update_by varchar(255) COLLATE fleet_general_ci DEFAULT NULL, -- 更新人
 is_deleted boolean DEFAULT false, -- 删除状态
 type int DEFAULT '0', -- 类型（0：默认）
 state int DEFAULT '1', -- 状态（1：启用，2：禁用）
@@ -218,7 +218,7 @@ tenant_id varchar(64) COLLATE fleet_general_ci NOT NULL, -- 租户id
 create_dept varchar(64) COLLATE fleet_general_ci DEFAULT NULL -- 创建部门ID
 ```
 
-`id`、`code`、`description`、`createTime`、`creator`、`updateTime`、`updater`、`deleted`、`label`、`sorting`、`version` 由 `utils` 的 `com.kellen.entity.EntityBase` 承接（时间、创建人、修改人自动填充，创建人、修改人取当前登录用户ID，没有登录用户时不填），`tenantId` 与 `createDept`（插入时取当前登录用户的部门）由 `TenantEntityBase` 承接；新增实体继承 `TenantEntityBase`（无租户的表继承 `EntityBase`），只声明业务字段。
+`id`、`code`、`description`、`createTime`、`createBy`、`updateTime`、`updateBy`、`deleted`、`label`、`sorting`、`version` 由 `utils` 的 `com.kellen.entity.EntityBase` 承接（时间、创建人、修改人自动填充，创建人、修改人取当前登录用户ID，没有登录用户时不填），`tenantId` 与 `createDept`（插入时取当前登录用户的部门）由 `TenantEntityBase` 承接；新增实体继承 `TenantEntityBase`，只声明业务字段。
 
 `type` 和 `state` 不放入 utils 的实体基类。业务代码需要读写 `type/state` 时，由当前实体自行声明字段并配套 `IEnum` 或受控枚举；不需要读写时依赖数据库默认值即可。
 

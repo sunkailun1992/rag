@@ -71,7 +71,7 @@ docs/ai-coding/
 - Controller 返回统一使用 `com.kellen.utils.ApiResponse`。
 - Controller 接口严格优先使用 RESTful 风格：资源路径用复数名词，`GET` 查询、`POST` 新增、`PUT` 修改、`DELETE` 删除，标准 CRUD 不使用 `/save`、`/update`、`/remove`、`/select`、`/page` 等动词路径。
 - Controller 类必须添加 `@Tag`，方法必须添加 `@Operation`，避免 OpenAPI 展示默认 `xxx-controller`、`list_1`、`save_1` 等不可读名称。
-- 实体公共字段继承 utils 的 `com.kellen.entity.TenantEntityBase`（无租户的表继承 `EntityBase`）。
+- 实体公共字段继承 utils 的 `com.kellen.entity.TenantEntityBase`。
 - 新增业务表 DDL 必须按 `PROJECT_CODING_SPEC.md` 公共字段清单补齐；`version` 只表示乐观锁，业务版本使用 `*_version` 命名。
 - `type/state` 是默认治理/状态列但不进入 `EntityBase`；业务代码需要读写时由当前模块定义 `IEnum` 或受控枚举，不需要读写时依赖数据库默认值。
 - 多租户和逻辑删除由框架处理，业务查询不要重复拼 `tenant_id` 或 `is_deleted = false`。
