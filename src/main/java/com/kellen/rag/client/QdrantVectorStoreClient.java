@@ -59,12 +59,14 @@ public class QdrantVectorStoreClient extends JsonHttpSupport implements VectorSt
         requireConfig();
         int collectionStatus = status(collectionUrl(), Map.of());
         if (collectionStatus == 404) {
+            // payload 常驻内存：知识库切片规模小，放在 NAS 机械盘上时重启或空闲后首个检索的召回与图扩展回读会冷读变慢，
+            // 可能超出 0.4 秒图扩展预算。已有集合不在此处改动，由运维按 README 显式更新。
             Map<String, Object> schema = new LinkedHashMap<>(Map.of(
                     "vectors", Map.of(
                             "size", properties.getEmbeddingDimension(),
                             "distance", "Cosine"
                     ),
-                    "on_disk_payload", true
+                    "on_disk_payload", false
             ));
             if (properties.isHybridWriteEnabled()) schema.put("sparse_vectors",
                     Map.of(LexicalSparseVector.MODEL, Map.of("modifier", "idf")));

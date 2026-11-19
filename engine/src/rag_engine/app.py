@@ -28,6 +28,7 @@ from rag_engine.models import ParseRequest, ParseResponse, RetrievalRequest, Ret
 from rag_engine.observability import Observability, ObservationBoundary, ObservedTransport, stage
 from rag_engine.parsing import parse_document
 from rag_engine.retrieval import retrieve
+from rag_engine.vector_warmup import keep_vectors_warm
 
 logger = logging.getLogger("rag_engine")
 
@@ -153,9 +154,18 @@ def create_app(
                     except Exception:
                         logger.warning("rag_graph_failed code=GRAPH_STORE_UNAVAILABLE")
                         await manager.repository.driver.close()
+                # 尽力而为的冷读防护，不计入就绪；失败只记固定诊断，下一周期重试。
+                warmup = (
+                    asyncio.create_task(keep_vectors_warm(settings, client, observation))
+                    if settings.qdrant_url and settings.qdrant_warmup_seconds > 0
+                    else None
+                )
                 try:
                     yield
                 finally:
+                    if warmup:
+                        warmup.cancel()
+                        await asyncio.gather(warmup, return_exceptions=True)
                     if app.state.graph:
                         await app.state.graph.stop()
         finally:

@@ -33,7 +33,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 HTTP_METHODS = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
 )
@@ -67,6 +67,7 @@ STAGES = frozenset(
         "source_recheck",
         "publish",
         "upstream",
+        "vector_warmup",
     }
 )
 RESULTS = frozenset({"success", "failed", "cancelled", "timeout", "degraded", "empty", "client_error"})
@@ -112,6 +113,7 @@ SAFE_TEMPLATES = frozenset(
         "rag_parser_worker_failed phase=%s reason=exit exit_code=%d elapsed_ms=%d",
         "rag_parser_worker_failed phase=%s reason=timeout elapsed_ms=%d",
         "rag_retrieval_finished elapsed_ms=%d",
+        "rag_vector_warmup_failed code=VECTOR_STORE_UNAVAILABLE",
     ]
 )
 SAFE_CODES = GRAPH_MODEL_CODES | frozenset(

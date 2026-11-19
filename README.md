@@ -2,7 +2,7 @@
 
 `rag` 是 RAG 知识检索服务后端微服务。
 
-当前 Java 版本为 `1.3.3`，Engine 为 `0.3.4`。本批修正预热覆盖面：Neo4j 计划缓存也按 tenant、kb 字符串长度分档，预热改为三维档位组合各执行一次，真实知识库（如 general）的计划不再在请求里现场编译，细节见 `engine/README.md`。Engine `0.3.3` 修复图谱数据变化后首次图扩展超时降级：两条图检索查询带 `CYPHER replan=skip`，预热由 EXPLAIN 改为占位参数实际执行，编译不再落在0.4秒局部预算内；后台每次 Neo4j 往返加客户端上限，心跳不再卡在无回应连接上静默失租，超时在租约内换连接重试，细节见 `engine/README.md`。Engine `0.3.2` 把图 worker 空闲领取间隔由0.5秒改为可配置、默认5秒，本进程提交的新任务立即唤醒领取，减少 NAS 机械盘上的持续 Neo4j 小写入，细节见 `engine/README.md`。Engine `0.3.1` 修复 NAS 上图扩展持续超时降级：Engine 在请求外预编译图扩展查询计划，邻居扩展按名称截取候选后结果不变、执行耗时约降为三分之一，0.4秒局部／3秒整体预算不变，细节见 `engine/README.md`；源码与离线测试不表示已部署，NAS 镜像切换与图检索开关恢复另行取证。Engine `0.3.0` 修复图 worker 已失活但健康检查仍成功的缺口：图谱开启时，只有启动成功且 heartbeat/pump 两任务仍运行才健康；失租保持 fail-stop，健康与图谱入站返回503，不自动重拿租约。源码与离线测试不表示已部署或恢复实际 worker。
+当前 Java 版本为 `1.3.4`，Engine 为 `0.3.5`。本批防止长时间空闲后首个检索冷读机械盘：新建 Qdrant 集合的 payload 改为内存档（`on_disk_payload=false`），Engine 定期只读保温 payload 与向量索引，细节见 `engine/README.md`。Engine `0.3.4` 修正预热覆盖面：Neo4j 计划缓存也按 tenant、kb 字符串长度分档，预热改为三维档位组合各执行一次，真实知识库（如 general）的计划不再在请求里现场编译，细节见 `engine/README.md`。Engine `0.3.3` 修复图谱数据变化后首次图扩展超时降级：两条图检索查询带 `CYPHER replan=skip`，预热由 EXPLAIN 改为占位参数实际执行，编译不再落在0.4秒局部预算内；后台每次 Neo4j 往返加客户端上限，心跳不再卡在无回应连接上静默失租，超时在租约内换连接重试，细节见 `engine/README.md`。Engine `0.3.2` 把图 worker 空闲领取间隔由0.5秒改为可配置、默认5秒，本进程提交的新任务立即唤醒领取，减少 NAS 机械盘上的持续 Neo4j 小写入，细节见 `engine/README.md`。Engine `0.3.1` 修复 NAS 上图扩展持续超时降级：Engine 在请求外预编译图扩展查询计划，邻居扩展按名称截取候选后结果不变、执行耗时约降为三分之一，0.4秒局部／3秒整体预算不变，细节见 `engine/README.md`；源码与离线测试不表示已部署，NAS 镜像切换与图检索开关恢复另行取证。Engine `0.3.0` 修复图 worker 已失活但健康检查仍成功的缺口：图谱开启时，只有启动成功且 heartbeat/pump 两任务仍运行才健康；失租保持 fail-stop，健康与图谱入站返回503，不自动重拿租约。源码与离线测试不表示已部署或恢复实际 worker。
 
 三个 profile 不再导入只提供 Google 凭据与模型名的 `ai-model-secrets.yaml`：Java RAG 使用 `rag.vector.*`，不创建 Google 模型。移除无关导入不改变 embedding 模型、维度、Engine 环境变量或其它 Nacos 导入；已运行进程须受控重启新制品后再核对，源码变更不代表旧进程已卸载凭据。
 
@@ -121,7 +121,7 @@ local-canary.yaml
 
 ## 表结构
 
-文档注册、切片元数据和向量保存在 Qdrant payload；Neo4j 是唯一派生图实现，个人 PostgreSQL 库里只有 Seata AT 的 `undo_log`。旧节点/边表的历史建表 SQL 与清理候选已在 1.3.3 删除（Git 历史可查），回滚边界见 [旧实现清理](docs/legacy-rag-retirement.md)。表结构只由本服务的 Flyway 迁移维护：
+文档注册、切片元数据和向量保存在 Qdrant payload；1.3.4 起新建集合的 payload 为内存档（`on_disk_payload=false`，Qdrant 1.20 存为 `in_ram_mmap`）。已有集合不由服务自动改动：先 `POST /collections/{集合}/snapshots?wait=true` 留快照，再 `PATCH /collections/{集合}`、请求体 `{"params":{"on_disk_payload":false}}`，等集合回到 green 并在 `/telemetry` 里读回各段 `payload_storage_type` 均为 `in_ram_mmap`（2026-11-20 个人 dev 集合 883 点约 20 秒完成）；回退为同样把参数改回 `true`，或用快照恢复。Neo4j 是唯一派生图实现，个人 PostgreSQL 库里只有 Seata AT 的 `undo_log`。旧节点/边表的历史建表 SQL 与清理候选已在 1.3.3 删除（Git 历史可查），回滚边界见 [旧实现清理](docs/legacy-rag-retirement.md)。表结构只由本服务的 Flyway 迁移维护：
 
 ```text
 src/main/resources/db/migration/V1__baseline.sql         Seata AT 回滚日志表 undo_log，只在空库执行

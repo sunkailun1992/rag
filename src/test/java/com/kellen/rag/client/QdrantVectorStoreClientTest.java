@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QdrantVectorStoreClientTest {
 
@@ -92,6 +93,40 @@ class QdrantVectorStoreClientTest {
             assertEquals(2, indexes.get(i).size());
             assertEquals("wait=true", indexQueries.get(i));
         }
+    }
+
+    @Test
+    void shouldCreateMissingCollectionWithPayloadKeptInMemory() throws IOException {
+        // NAS 机械盘上 payload 放磁盘时，重启或空闲后首个检索的召回与图扩展回读会冷读变慢（实测召回 672 ms）；
+        // 知识库切片规模小，payload 常驻内存，向量与索引配置不变。
+        ObjectMapper mapper = new ObjectMapper();
+        List<JsonNode> created = new CopyOnWriteArrayList<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/collections/test-collection", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            if ("GET".equals(exchange.getRequestMethod()) && "/collections/test-collection".equals(path)) {
+                respond(exchange, 404);
+                return;
+            }
+            if ("PUT".equals(exchange.getRequestMethod()) && "/collections/test-collection".equals(path)) {
+                created.add(mapper.readTree(exchange.getRequestBody()));
+            }
+            byte[] response = "{\"result\":true}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        client().ensureCollection();
+
+        assertEquals(1, created.size());
+        JsonNode schema = created.getFirst();
+        assertTrue(schema.path("on_disk_payload").isBoolean());
+        assertFalse(schema.path("on_disk_payload").asBoolean());
+        assertEquals("Cosine", schema.path("vectors").path("distance").asText());
+        assertEquals(new RagVectorProperties().getEmbeddingDimension(), schema.path("vectors").path("size").asInt());
     }
 
     private void startServer(int collectionsStatus) throws IOException {
