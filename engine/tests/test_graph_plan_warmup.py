@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+import re
 
 import pytest
 from neo4j.exceptions import ServiceUnavailable
@@ -58,18 +59,47 @@ def test_hot_graph_queries_keep_cached_plans_when_graph_statistics_change():
         assert query.lstrip().startswith("CYPHER replan=skip\n")
 
 
+def _bucket(size: int) -> int:
+    # Neo4j 5.26 计划缓存的大小档位（2026-11-20 NAS 实测）：列表按元素个数、
+    # 顶层字符串按长度，均为 1、2–10、11–100。
+    return 1 if size == 1 else 10 if size <= 10 else 100
+
+
+def test_warmup_covers_every_tenant_kb_and_list_size_bucket_combination():
+    # tenant 与 kb 都是 1–64 位，真实 kb 如 general（7 位）落在 2–10 档；只用 11 位占位范围预热时，
+    # 真实请求一个计划也命不中，首次仍在 0.4 秒预算内现场编译。
+    statements = plan_warmup_statements()
+    every = {(t, k, s) for t in (1, 10, 100) for k in (1, 10, 100) for s in (1, 10, 100)}
+    neighbor = {
+        (_bucket(len(p["tenant"])), _bucket(len(p["kb"])), _bucket(len(p["seeds"])))
+        for q, p in statements
+        if q == NEIGHBOR_QUERY
+    }
+    publication = {
+        (_bucket(len(p["tenant"])), _bucket(len(p["kb"])), _bucket(len(p["sources"])))
+        for q, p in statements
+        if q == PUBLICATION_QUERY
+    }
+    assert neighbor == every and publication == every
+    assert len(statements) == 2 * len(every)
+    # 占位范围含真实租户/知识库不允许的字符，永远匹配不到任何租户数据。
+    for _, params in statements:
+        assert 1 <= len(params["tenant"]) <= 64 and 1 <= len(params["kb"]) <= 64
+        assert not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", params["tenant"])
+        assert not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", params["kb"])
+
+
 def test_warmup_runs_each_retrieval_query_for_every_list_size_bucket():
     statements = plan_warmup_statements()
     # 只 EXPLAIN 时首次真实执行仍要约 40 ms 编译执行部分；预热按请求原文实际执行。
     neighbor = [params for query, params in statements if query == NEIGHBOR_QUERY]
     publication = [params for query, params in statements if query == PUBLICATION_QUERY]
     assert len(statements) == len(neighbor) + len(publication)
-    # Neo4j 5.26 按列表参数大小分档缓存计划（1、2–10、11–100）；
     # 请求 seeds/excluded ≤100、sources ≤20。
-    assert sorted(len(params["seeds"]) for params in neighbor) == [1, 10, 100]
+    assert {len(params["seeds"]) for params in neighbor} == {1, 10, 100}
     assert all(len(params["excluded"]) == len(params["seeds"]) for params in neighbor)
     assert all(params["limit"] == 20 for params in neighbor)
-    assert sorted(len(params["sources"]) for params in publication) == [1, 10, 20]
+    assert {len(params["sources"]) for params in publication} == {1, 10, 20}
     for params in neighbor:
         assert all(
             set(seed) == {"documentKey", "documentId", "pointId", "sourceKey"} for seed in params["seeds"]

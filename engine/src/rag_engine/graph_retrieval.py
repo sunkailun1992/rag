@@ -63,14 +63,16 @@ RETURN c.point_id AS pointId,c.source_key AS sourceKey,c.generation AS generatio
 LIMIT 20
 """
 
-# Neo4j 按查询文本、参数类型和列表参数大小档位缓存执行计划；5.26 实测档位为 1、2–10、11–100，
+# Neo4j 按查询文本、参数类型和大小档位缓存执行计划：列表按元素个数、顶层字符串（tenant、kb）按长度，
+# 5.26 实测档位均为 1、2–10、11–100；映射值与列表元素里的字符串长度不影响（2026-11-20 NAS 实测）。
 # 换档即重新编译。NAS 高负载时编译要数百毫秒到数秒，在 0.4 秒局部预算内被取消就不会写入缓存，
-# 下次请求又从头编译。每个档位用同类型代表参数按请求原文实际执行一次，把编译移到请求之外：
-# 只 EXPLAIN 时首次真实执行仍要约 40 ms 编译执行部分（2026-11-19 NAS 实测）。占位参数只匹配
-# plan-warmup 范围，读不到任何租户数据，两条查询均只读。
-# 请求中 seeds/excluded 至多 100 项，sources 至多 20 项。
+# 下次请求又从头编译。tenant、kb 均为 1–64 位，seeds/excluded 至多 100 项，sources 至多 20 项；
+# 三个维度的每个档位组合各用同类型代表参数按请求原文实际执行一次，把编译移到请求之外：
+# 只 EXPLAIN 时首次真实执行仍要约 40 ms 编译执行部分。占位 tenant/kb 由合法 ID 字符集之外的 "~" 组成，
+# 永远匹配不到真实范围，读不到任何租户数据；两条查询均只读。
 NEIGHBOR_WARMUP_SIZES = (1, 10, 100)
 PUBLICATION_WARMUP_SIZES = (1, 10, 20)
+WARMUP_SCOPE_LENGTHS = (1, 10, 64)
 WARMUP_SCOPE = "plan-warmup"
 
 
@@ -88,16 +90,16 @@ def _warmup_sources(size: int, *, generation: bool) -> list[dict]:
 def plan_warmup_statements() -> list[tuple[str, dict]]:
     """参数只决定类型与档位，不对应真实租户、知识库或来源；执行结果为空，不写数据。"""
     statements = []
-    for size in NEIGHBOR_WARMUP_SIZES:
-        seeds = _warmup_sources(size, generation=False)
-        params = {"tenant": WARMUP_SCOPE, "kb": WARMUP_SCOPE, "seeds": seeds, "limit": 20}
-        params["excluded"] = [seed["pointId"] for seed in seeds]
-        statements.append((NEIGHBOR_QUERY, params))
-    for size in PUBLICATION_WARMUP_SIZES:
-        sources = _warmup_sources(size, generation=True)
-        statements.append(
-            (PUBLICATION_QUERY, {"tenant": WARMUP_SCOPE, "kb": WARMUP_SCOPE, "sources": sources})
-        )
+    scopes = [("~" * tenant, "~" * kb) for tenant in WARMUP_SCOPE_LENGTHS for kb in WARMUP_SCOPE_LENGTHS]
+    for tenant, kb in scopes:
+        for size in NEIGHBOR_WARMUP_SIZES:
+            seeds = _warmup_sources(size, generation=False)
+            params = {"tenant": tenant, "kb": kb, "seeds": seeds, "limit": 20}
+            params["excluded"] = [seed["pointId"] for seed in seeds]
+            statements.append((NEIGHBOR_QUERY, params))
+        for size in PUBLICATION_WARMUP_SIZES:
+            sources = _warmup_sources(size, generation=True)
+            statements.append((PUBLICATION_QUERY, {"tenant": tenant, "kb": kb, "sources": sources}))
     return statements
 
 
