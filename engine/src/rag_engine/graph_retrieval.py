@@ -18,7 +18,11 @@ from rag_engine.models import Hit, RetrievalRequest
 # 本租户/KB 的活动文档只解析一次；每个名称只留 pointId 最小的 $limit 个合格候选，
 # 全局前 $limit 个必在其中（切片 ID 由 tenant/KB/generation/pointId 派生，候选按 pointId 唯一），
 # 结果与逐候选扫描文档、全量展开同名实体时相同，高频实体不再放大扩展与去重。
+# replan=skip：上传/删除文档改变图统计后，Neo4j 会判定已缓存计划过期并在下一次查询里重编
+# （2026-11-19 NAS 实测 330–390 ms，落在请求里即超出 0.4 秒局部预算）。两条热点查询都按固定索引
+# 定向查找，计划结构不随数据量变化，故继续用已缓存计划；缓存缺失（重启、清缓存）时的编译由预热承担。
 NEIGHBOR_QUERY = """
+CYPHER replan=skip
 MATCH (doc:RagGraphDocument {tenant:$tenant,knowledgeBase:$kb})
 WHERE doc.activeGeneration IS NOT NULL
 WITH collect([doc.documentId, doc.activeGeneration]) AS active
@@ -49,6 +53,7 @@ ORDER BY pointId LIMIT $limit
 """
 
 PUBLICATION_QUERY = """
+CYPHER replan=skip
 UNWIND $sources AS a
 MATCH (d:RagGraphDocument {key:a.documentKey,tenant:$tenant,knowledgeBase:$kb,
                           documentId:a.documentId,activeGeneration:a.generation})
@@ -60,7 +65,9 @@ LIMIT 20
 
 # Neo4j 按查询文本、参数类型和列表参数大小档位缓存执行计划；5.26 实测档位为 1、2–10、11–100，
 # 换档即重新编译。NAS 高负载时编译要数百毫秒到数秒，在 0.4 秒局部预算内被取消就不会写入缓存，
-# 下次请求又从头编译。每个档位用同类型代表参数预先 EXPLAIN，把编译移到请求之外；
+# 下次请求又从头编译。每个档位用同类型代表参数按请求原文实际执行一次，把编译移到请求之外：
+# 只 EXPLAIN 时首次真实执行仍要约 40 ms 编译执行部分（2026-11-19 NAS 实测）。占位参数只匹配
+# plan-warmup 范围，读不到任何租户数据，两条查询均只读。
 # 请求中 seeds/excluded 至多 100 项，sources 至多 20 项。
 NEIGHBOR_WARMUP_SIZES = (1, 10, 100)
 PUBLICATION_WARMUP_SIZES = (1, 10, 20)
@@ -79,25 +86,25 @@ def _warmup_sources(size: int, *, generation: bool) -> list[dict]:
 
 
 def plan_warmup_statements() -> list[tuple[str, dict]]:
-    """参数只决定类型与档位，不对应真实租户、知识库或来源；EXPLAIN 只编译不读写数据。"""
+    """参数只决定类型与档位，不对应真实租户、知识库或来源；执行结果为空，不写数据。"""
     statements = []
     for size in NEIGHBOR_WARMUP_SIZES:
         seeds = _warmup_sources(size, generation=False)
         params = {"tenant": WARMUP_SCOPE, "kb": WARMUP_SCOPE, "seeds": seeds, "limit": 20}
         params["excluded"] = [seed["pointId"] for seed in seeds]
-        statements.append(("EXPLAIN " + NEIGHBOR_QUERY, params))
+        statements.append((NEIGHBOR_QUERY, params))
     for size in PUBLICATION_WARMUP_SIZES:
         sources = _warmup_sources(size, generation=True)
         statements.append(
-            ("EXPLAIN " + PUBLICATION_QUERY, {"tenant": WARMUP_SCOPE, "kb": WARMUP_SCOPE, "sources": sources})
+            (PUBLICATION_QUERY, {"tenant": WARMUP_SCOPE, "kb": WARMUP_SCOPE, "sources": sources})
         )
     return statements
 
 
 async def warm_retrieval_plans(repository) -> None:
-    """按固定顺序预编译；失败由调用方记录并在下一周期重试。"""
+    """按固定顺序预热；失败由调用方记录并在下一周期重试。"""
     for query, params in plan_warmup_statements():
-        await repository.explain(query, **params)
+        await repository.warm_plan(query, **params)
 
 
 @dataclass

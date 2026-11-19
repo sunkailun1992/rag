@@ -12,8 +12,11 @@ from rag_engine.errors import EngineError
 from rag_engine.graph_models import GraphBuild, GraphBuildRequest
 from rag_engine.graph_sources import digest, document_key, source_key
 
-# 预编译只做 EXPLAIN、不读写数据；高负载 NAS 上复杂查询编译可达数秒，不沿用交互查询的三秒事务预算。
+# 预热以占位参数执行、读不到租户数据也不写；高负载 NAS 上复杂查询编译可达数秒，不沿用交互查询的三秒事务预算。
 PLAN_WARMUP_TIMEOUT_SECONDS = 30
+# 服务端事务超时只在连接仍有回应时生效；失效连接会让 await 永远挂起（2026-11-19 心跳因此静默停摆、
+# 租约过期）。每次往返另加客户端上限 = 该调用的服务端超时 + 宽限：连接正常时仍由服务端先超时。
+CLIENT_GRACE_SECONDS = 1
 
 
 def now_iso() -> str:
@@ -82,28 +85,32 @@ class GraphRepository:
                     self.on_terminal(job["buildId"], result)
 
     async def rows(self, query, **params):
-        records, _, _ = await self.driver.execute_query(
-            Query(query, timeout=self.settings.graph_query_timeout_seconds),
-            parameters_=params,
-            database_=self.settings.neo4j_database,
-        )
+        async with asyncio.timeout(self.settings.graph_query_timeout_seconds + CLIENT_GRACE_SECONDS):
+            records, _, _ = await self.driver.execute_query(
+                Query(query, timeout=self.settings.graph_query_timeout_seconds),
+                parameters_=params,
+                database_=self.settings.neo4j_database,
+            )
         return [record.data() for record in records]
 
-    async def explain(self, query, **params):
-        await self.driver.execute_query(
-            Query(query, timeout=PLAN_WARMUP_TIMEOUT_SECONDS),
-            parameters_=params,
-            database_=self.settings.neo4j_database,
-        )
+    async def warm_plan(self, query, **params):
+        async with asyncio.timeout(PLAN_WARMUP_TIMEOUT_SECONDS + CLIENT_GRACE_SECONDS):
+            await self.driver.execute_query(
+                Query(query, timeout=PLAN_WARMUP_TIMEOUT_SECONDS),
+                parameters_=params,
+                database_=self.settings.neo4j_database,
+            )
 
     @asynccontextmanager
     async def transaction(self):
-        async with self.driver.session(database=self.settings.neo4j_database) as session:
-            async with await session.begin_transaction(
-                timeout=self.settings.graph_query_timeout_seconds
-            ) as tx:
-                yield tx
-                await tx.commit()
+        # 上限覆盖整个事务体：服务端超时同样从事务开始计；超时沿事务与会话退出，连接交还驱动处置。
+        async with asyncio.timeout(self.settings.graph_query_timeout_seconds + CLIENT_GRACE_SECONDS):
+            async with self.driver.session(database=self.settings.neo4j_database) as session:
+                async with await session.begin_transaction(
+                    timeout=self.settings.graph_query_timeout_seconds
+                ) as tx:
+                    yield tx
+                    await tx.commit()
 
     async def lock(self, tx):
         result = await tx.run(

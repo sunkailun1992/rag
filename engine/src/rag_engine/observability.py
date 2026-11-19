@@ -33,7 +33,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 HTTP_METHODS = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
 )
@@ -105,6 +105,7 @@ SAFE_TEMPLATES = frozenset(
         "rag_graph_scheduler_failed code=GRAPH_STORE_UNAVAILABLE",
         "rag_graph_worker_diagnostic data=%s",
         "rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST",
+        "rag_graph_worker_heartbeat_retry code=GRAPH_STORE_UNAVAILABLE",
         "rag_graph_worker_process_failed stage=%s returncode=%s signal=%s stdout_bytes=%s",
         "rag_parse_finished elapsed_ms=%d",
         "rag_parser_worker_failed phase=%s reason=cancelled elapsed_ms=%d",
@@ -265,6 +266,7 @@ def diagnostic_code(template, arguments):
         "rag_graph_failed code=GRAPH_STORE_UNAVAILABLE": "GRAPH_STORE_UNAVAILABLE",
         "rag_graph_scheduler_failed code=GRAPH_STORE_UNAVAILABLE": "GRAPH_STORE_UNAVAILABLE",
         "rag_graph_worker_failed code=GRAPH_WORKER_LEASE_LOST": "GRAPH_WORKER_LEASE_LOST",
+        "rag_graph_worker_heartbeat_retry code=GRAPH_STORE_UNAVAILABLE": "GRAPH_STORE_UNAVAILABLE",
     }
     if template in fixed and not arguments:
         return fixed[template]

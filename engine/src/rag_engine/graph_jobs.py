@@ -11,6 +11,7 @@ import uuid
 
 from opentelemetry import trace
 
+from rag_engine import graph_repository
 from rag_engine.errors import (
     GRAPH_MODEL_CODES,
     GRAPH_MODEL_REASONS,
@@ -27,9 +28,11 @@ from rag_engine.graph_worker import safe_worker_diagnostic, sanitize_worker_diag
 from rag_engine.observability import WORKER_FAILURE_CLASSES, Observability, failure_result, stage
 
 logger = logging.getLogger("rag_engine.graph")
-# 首次立即预编译，此后定期复查：计划已缓存时每轮只是几次毫秒级 EXPLAIN；
-# 重启、统计变化或新档位引起的重新编译在请求外完成。
+# 首次立即预热，此后定期复查：计划已缓存时每轮只是几次毫秒级的空结果执行；
+# 重启、清缓存或新档位引起的编译在请求外完成（热点查询带 replan=skip，统计变化不再触发重编）。
 PLAN_WARMUP_INTERVAL_SECONDS = 30
+# 心跳被客户端上限截断后的重试间隔；被取消的连接已由驱动丢弃，下一次换连接。
+HEARTBEAT_RETRY_SECONDS = 1
 
 
 async def run_worker(payload, settings, remaining: float):
@@ -205,7 +208,7 @@ class GraphManager:
         await self.repository.start()
         self.tasks = [asyncio.create_task(self.heartbeat()), asyncio.create_task(self.pump())]
         if self.settings.graph_retrieval_enabled:
-            # 尽力而为的性能保障，不计入就绪任务；预编译失败时请求仍按原预算编译，超时即降级。
+            # 尽力而为的性能保障，不计入就绪任务；预热失败时请求仍按原预算编译，超时即降级。
             self.plan_warmup = asyncio.create_task(self.warm_plans())
         self._started = True
 
@@ -228,10 +231,29 @@ class GraphManager:
             await asyncio.sleep(PLAN_WARMUP_INTERVAL_SECONDS)
 
     async def heartbeat(self):
+        loop = asyncio.get_running_loop()
+        lease = self.settings.graph_lease_seconds
+        # 本地估计的租约截止从启动租约或最近一次续期成功起算；数据库 leaseUntil 才是权威。
+        renewed_at = loop.time()
         try:
             while True:
-                await asyncio.sleep(self.settings.graph_lease_seconds / 3)
-                await self.repository.heartbeat()
+                await asyncio.sleep(lease / 3)
+                while True:
+                    try:
+                        await self.repository.heartbeat()
+                    except TimeoutError:
+                        # 只重试客户端上限截断的无回应连接；租约确认丢失与其它错误仍立即 fail-stop。
+                        # 来不及在租约到期前完成下一次尝试就按失租处理，不越过租约继续认为自己在线。
+                        limit = (
+                            self.settings.graph_query_timeout_seconds + graph_repository.CLIENT_GRACE_SECONDS
+                        )
+                        if loop.time() + HEARTBEAT_RETRY_SECONDS + limit >= renewed_at + lease:
+                            raise
+                        logger.warning("rag_graph_worker_heartbeat_retry code=GRAPH_STORE_UNAVAILABLE")
+                        await asyncio.sleep(HEARTBEAT_RETRY_SECONDS)
+                        continue
+                    renewed_at = loop.time()
+                    break
         except asyncio.CancelledError:
             raise
         except Exception as error:
