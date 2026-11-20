@@ -10,7 +10,7 @@
 - Slice 测试：局部 Controller/Mapper 可以使用 `@WebMvcTest`、`@MybatisTest`，只作为补充。
 - Service 集成测试：核心业务用 `@SpringBootTest` 注入真实 Spring Bean，验证事务、AOP、权限上下文、多租户、Mapper 和报告访问边界。
 - HTTP 集成测试：核心对外接口用 `@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)`，通过 `TestRestTemplate` 或 `WebTestClient` 发真实 HTTP 请求。
-- 跨服务测试：Dubbo、Gateway、Nacos、RabbitMQ 等链路放到独立 integration profile 或测试环境。
+- 跨服务测试：Dubbo、Gateway、Nacos、RocketMQ 等链路放到独立 integration profile 或测试环境。
 
 ## assertThat 规则
 

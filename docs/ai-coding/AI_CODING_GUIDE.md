@@ -23,7 +23,7 @@
 13. 只有明确属于当前微服务业务边界的代码，才按当前项目现有结构创建 Java 文件。
 14. 新增或修改 Controller 时，先按 `PROJECT_CODING_SPEC.md` 的 RESTful 接口规范设计路径和 HTTP 方法。
 15. 新增或修改 Controller 时，补齐 `@Tag`、`@Operation`、必要的 `@Parameter` 和请求/响应对象 `@Schema`，确保 OpenAPI 文档展示业务名称而不是默认方法名。
-16. 涉及 PostgreSQL、Redis、RabbitMQ、Seata、Elasticsearch、Kibana、Zipkin 等基础设施地址时，优先读取项目根目录 `README.md` 的基础设施地址约定，不要在业务配置中新增裸 IP。
+16. 涉及 PostgreSQL、Redis、RocketMQ、Seata、Elasticsearch、Kibana、Zipkin 等基础设施地址时，优先读取项目根目录 `README.md` 的基础设施地址约定，不要在业务配置中新增裸 IP。
 17. 新增或修改 README、AI 规范、配置、脚本、测试、示例和代码时，禁止写入个人电脑绝对路径；目录关系使用相对路径，外部安装位置使用环境变量或 `<PLACEHOLDER>` 占位符。
 18. 代码编写完成后补充或更新 JUnit 5 测试用例；接口功能优先从 Controller 请求层覆盖请求参数、权限、统一响应和 Service 调用，再按风险补充 Service/Mapper 单元测试。
 19. 检查项目根目录 `README.md`，已有内容时补充本次新增或调整的业务说明，缺少文件时新建。

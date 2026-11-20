@@ -60,7 +60,7 @@
 规则：
 
 - 连接 Nacos 自身所需的通用骨架保留在本地 `application.yml`；Nacos 地址、namespace、config/discovery 绑定和 `spring.config.import` 必须放在 `application-dev/test/prod.yml` 对应环境文件中。
-- PostgreSQL、Redis、RabbitMQ、Seata、Elasticsearch、Kibana、Zipkin 等基础设施地址优先放入 Nacos 公共配置，例如 `reuse-configuration.yaml`。
+- PostgreSQL、Redis、RocketMQ、Seata、Elasticsearch、Kibana、Zipkin 等基础设施地址优先放入 Nacos 公共配置，例如 `reuse-configuration.yaml`。
 - 业务配置只引用公共变量，例如 `${custom.infra-host}`、`${custom.infra-postgresql-addr}`、`${custom.local-service-host}`。
 - 不要在多个 `*.yaml` 配置文件中直接写同一个基础设施 IP。
 - 需要区分服务端地址和本机回调地址时，使用不同变量；例如 NAS 基础设施入口与当前服务发布地址分别配置；不恢复已退役执行器的回调键。

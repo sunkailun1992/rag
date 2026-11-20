@@ -4,7 +4,7 @@
 
 ## 1. 总原则
 
-- 先识别当前语言、框架和模块边界；本项目默认按 Java 21、Spring Boot、MyBatis-Plus、RabbitMQ、Gradle 和 `com:utils` 生态落地。
+- 先识别当前语言、框架和模块边界；本项目默认按 Java 21、Spring Boot、MyBatis-Plus、RocketMQ、Gradle 和 `com:utils` 生态落地。
 - 优先沿用当前分层：Controller、BO、Query、VO、Entity、Mapper、Service、ServiceQuery、ServiceResults。
 - 设计模式必须服务报告边界：报告归属、访问权限、租户隔离、文件安全、重复生成、MQ 失败处理。
 - 不允许为简单 CRUD 硬套 Factory、Manager、Abstract 层或过深继承。
@@ -16,7 +16,7 @@
 - SOLID 原则：判断职责拆分、依赖方向和接口稳定性。
 - GRASP 原则：判断报告职责应该归属记录、文件、任务、审核、导出还是通知通道。
 - Martin Fowler 企业应用模式：Service Layer、Repository/Mapper、DTO、Transaction Script。
-- Spring / RabbitMQ 官方惯例：消息生产、消费、重试、事务边界、监听器和配置分层。
+- Spring / RocketMQ 官方惯例：消息生产、消费、重试、事务边界、监听器和配置分层。
 
 ## 3. 本项目推荐模式
 

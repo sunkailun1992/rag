@@ -1,6 +1,6 @@
 # AI 目录管理规范
 
-本规范约束 AI 在 `rag` RAG 知识检索服务中新增、移动、拆分和命名目录的方式。目录管理必须基于当前 Java 21、Spring Boot、Gradle、MyBatis-Plus、RabbitMQ 和 Nacos 微服务结构。
+本规范约束 AI 在 `rag` RAG 知识检索服务中新增、移动、拆分和命名目录的方式。目录管理必须基于当前 Java 21、Spring Boot、Gradle、MyBatis-Plus、RocketMQ 和 Nacos 微服务结构。
 
 ## 核心依据
 
@@ -74,4 +74,4 @@ src/main/java/com/kellen
 - 是否保持 `com/kellen/rag` RAG 知识检索服务边界清晰？
 - 是否避免把测试、临时脚本、构建产物或日志放进生产目录？
 - 是否没有嵌套同级项目副本？
-- 是否没有移动或替换已有密钥、RabbitMQ 地址、Nacos 地址、数据库连接和生产配置？
+- 是否没有移动或替换已有密钥、RocketMQ 地址、Nacos 地址、数据库连接和生产配置？
