@@ -21,11 +21,15 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.ObjectMapper;
 
+import java.net.BindException;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.UUID;
 
@@ -40,7 +44,9 @@ import static org.mockito.Mockito.when;
         "spring.config.name=graph-build-http-isolated",
         "spring.cloud.nacos.config.enabled=false",
         "spring.cloud.nacos.config.import-check.enabled=false",
-        "spring.cloud.nacos.discovery.enabled=false"
+        "spring.cloud.nacos.discovery.enabled=false",
+        // 被测服务绑 127.0.0.1：绑通配地址时，本机别的进程显式绑同号的 127.0.0.1 端口会抢走回环连接。
+        "server.address=127.0.0.1"
 })
 class GraphBuildHttpIntegrationTest {
     private static final String SECRET = UUID.randomUUID().toString();
@@ -98,6 +104,25 @@ class GraphBuildHttpIntegrationTest {
         assertThat(get("/api/rag/graphs/builds/build-1?knowledgeBase=kb-1", null).statusCode()).isEqualTo(401);
         assertThat(get("/api/rag/graphs/builds/build-1?knowledgeBase=kb-1", "unrelated").statusCode()).isEqualTo(403);
         verifyNoInteractions(graphs);
+    }
+
+    /**
+     * 本机别的进程显式绑同号的 127.0.0.1 端口时（macOS 允许它与通配监听共用端口，并抢走回环连接；第 5 阶段 7 次全量里
+     * 有 1 次本类 4 个用例同时“连接被重置、读不到响应头”），请求仍要到达被测服务：被测服务绑 127.0.0.1，同地址同端口绑不上。
+     */
+    @Test
+    void loopbackRequestsReachThisServerEvenIfAnotherListenerTriesTheSamePort() throws Exception {
+        try (ServerSocket other = new ServerSocket()) {
+            other.setReuseAddress(true);
+            try {
+                other.bind(new InetSocketAddress("127.0.0.1", port));
+            } catch (BindException expected) {
+                // 被测服务已独占 127.0.0.1 的这个端口。
+            }
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/rag/graphs/builds/build-1"))
+                    .timeout(Duration.ofSeconds(5)).GET().build();
+            assertThat(http.send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(401);
+        }
     }
 
     @Test

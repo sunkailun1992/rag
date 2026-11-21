@@ -25,7 +25,9 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(classes = {GraphBuildHttpIntegrationTest.TestApplication.class, GlobalExceptionHandler.class},
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.name=graph-submission-http-isolated", "spring.cloud.nacos.config.enabled=false",
-        "spring.cloud.nacos.config.import-check.enabled=false", "spring.cloud.nacos.discovery.enabled=false"})
+        "spring.cloud.nacos.config.import-check.enabled=false", "spring.cloud.nacos.discovery.enabled=false",
+        // 被测服务绑 127.0.0.1，回环连接不会被本机别的同号监听抢走（见 GraphBuildHttpIntegrationTest）。
+        "server.address=127.0.0.1"})
 class GraphSubmissionHttpValidationTest {
     @LocalServerPort private int port;
     @MockitoBean private RagKnowledgeGraphService graphs;
