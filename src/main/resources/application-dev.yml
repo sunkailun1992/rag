@@ -4,10 +4,10 @@ custom:
   nacos-ip: ${GITHUB_NACOS_DEV_SERVER_ADDR:${GITHUB_NACOS_SERVER_ADDR:172.16.1.70:8848}}
   # 个人命名空间的真实 ID；三个 profile 当前都使用 github-dev，不按 Git 分支自动切换。
   namespace: ${GITHUB_NACOS_DEV_NAMESPACE:github-dev}
-  # Nacos 连接账号由本机私有引导配置或环境变量提供；现有开发回退值保持不变。
-  nacos-username: ${GITHUB_NACOS_USERNAME:nacos}
-  # Nacos 连接密码由本机私有引导配置或环境变量提供；不把其他环境凭据写入仓库。
-  nacos-password: ${GITHUB_NACOS_PASSWORD:nacos}
+  # Nacos 连接账号只由进程环境变量提供（IDEA 的 env 文件、Jar 的 application.properties 或容器环境），不带默认值，缺值时启动失败。
+  nacos-username: ${GITHUB_NACOS_USERNAME}
+  # Nacos 连接密码同样只由进程环境变量提供、不带默认值；真实值不写入仓库。
+  nacos-password: ${GITHUB_NACOS_PASSWORD}
 
 spring:
   cloud:
