@@ -13,6 +13,7 @@ import com.kellen.rag.model.KnowledgeGraphViewMode;
 import com.kellen.rag.entity.enums.RagGraphNodeType;
 import com.kellen.rag.entity.vo.GraphBuildVO;
 import com.kellen.rag.entity.vo.RagKnowledgeGraphVO;
+import com.kellen.security.oauth2.client.FleetOAuth2Clients;
 import com.kellen.utils.context.TenantContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -40,22 +41,28 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 
 /**
- * RAG 引擎专属 HTTP 适配器。凭据、租户来自服务器配置与认证上下文，
+ * RAG 引擎专属 HTTP 适配器。服务凭据是 Keycloak 客户端凭证令牌（客户端注册 {@value #ENGINE_REGISTRATION}：客户端 github-rag、
+ * 受众 github-rag-engine，由 utils 的 {@link FleetOAuth2Clients} 取得并缓存），租户来自认证上下文；没取到令牌就不调用引擎。
  * 响应体有大小和总时间上限；返回内容再次核对租户，不能信任上游过滤一定正确。
  */
 @Component
 public class RagEngineClient {
+    /** 调 RAG 引擎的出站客户端注册 ID（Nacos rag-spring.yaml 的 spring.security.oauth2.client.registration.github-rag-engine）。 */
+    public static final String ENGINE_REGISTRATION = "github-rag-engine";
+
     private final RagEngineProperties properties;
     private final RagVectorProperties vectorProperties;
     private final ObjectMapper mapper;
+    private final FleetOAuth2Clients oauth2Clients;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(1000)).followRedirects(HttpClient.Redirect.NEVER).build();
 
     public RagEngineClient(RagEngineProperties properties, RagVectorProperties vectorProperties,
-                           ObjectMapper mapper) {
+                           ObjectMapper mapper, FleetOAuth2Clients oauth2Clients) {
         this.properties = properties;
         this.vectorProperties = vectorProperties;
         this.mapper = mapper;
+        this.oauth2Clients = oauth2Clients;
     }
 
     public boolean isParseEnabled() { return properties.isParseEnabled(); }
@@ -253,9 +260,8 @@ public class RagEngineClient {
         CompletableFuture<HttpResponse<byte[]>> pending = null;
         try {
             String tenant = requireTenant();
-            if (!StringUtils.hasText(properties.getApiKey()) || properties.getApiKey().length() < 32) {
-                throw new IllegalStateException("RAG 引擎需要至少 32 字符的服务密钥");
-            }
+            // 先取令牌：Keycloak 拒绝、不可达或超时都在发请求之前失败，不会不带令牌调用引擎。
+            String token = oauth2Clients.bearerToken(ENGINE_REGISTRATION);
             URI base = URI.create(properties.getBaseUrl());
             require(Set.of("http", "https").contains(base.getScheme()) && base.getHost() != null
                     && base.getUserInfo() == null && base.getQuery() == null && base.getFragment() == null
@@ -266,7 +272,7 @@ public class RagEngineClient {
             }
             HttpRequest request = HttpRequest.newBuilder(base.resolve(path))
                     .timeout(Duration.ofMillis(timeoutMillis)).header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + properties.getApiKey()).header("X-Tenant-Id", tenant)
+                    .header("Authorization", "Bearer " + token).header("X-Tenant-Id", tenant)
                     .method(method, body == null ? HttpRequest.BodyPublishers.noBody()
                             : HttpRequest.BodyPublishers.ofByteArray(encoded)).build();
             pending = http.sendAsync(request, info -> new LimitedBody(bounded(properties.getMaxResponseBytes(),

@@ -2,6 +2,8 @@ package com.kellen.rag.client;
 
 import com.kellen.rag.config.RagEngineProperties;
 import com.kellen.rag.config.RagVectorProperties;
+import com.kellen.rag.support.EngineTokenFixture;
+import com.kellen.security.oauth2.client.FleetOAuth2Clients;
 import com.kellen.utils.context.TenantContextHolder;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,7 +61,11 @@ class RagClientBoundaryRegressionTest {
             RagEngineProperties.class, RagVectorProperties.class})
     static class TestConfig {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
+        @Bean FleetOAuth2Clients oauth2Clients() { return EngineTokenFixture.from(TOKEN::get); }
     }
+
+    /** 引擎客户端取到的客户端凭证令牌。 */
+    static final AtomicReference<String> TOKEN = new AtomicReference<>(EngineTokenFixture.TOKEN);
 
     @BeforeEach
     void startIsolatedUpstream() throws Exception {
@@ -84,7 +91,7 @@ class RagClientBoundaryRegressionTest {
         upstream.start();
         String root = "http://127.0.0.1:" + upstream.getAddress().getPort();
         engine.setBaseUrl(root);
-        engine.setApiKey(UUID.randomUUID().toString() + UUID.randomUUID());
+        TOKEN.set(EngineTokenFixture.TOKEN);
         engine.setParseEnabled(true);
         vector.setQdrantUrl(root);
         vector.setCollectionName("boundary-fixture");
@@ -108,8 +115,9 @@ class RagClientBoundaryRegressionTest {
 
     @Test
     void shouldHideIllegalAuthorizationHeaderContentAndDiscardTheOriginalCause() {
+        // 令牌端点返回了带换行的令牌（被攻破或配置错误）：构建请求头失败，异常不带令牌原文与 JDK 原因。
         String sentinel = "synthetic-service-secret-" + UUID.randomUUID();
-        engine.setApiKey(sentinel + "\r\nsynthetic-second-line");
+        TOKEN.set(sentinel + "\r\nsynthetic-second-line");
 
         assertSanitizedConfigurationFailure(parseFailure(), sentinel, "Bearer", "synthetic-second-line");
         assertThat(requests.get()).isZero();

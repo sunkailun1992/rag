@@ -49,8 +49,6 @@ spring:
       - "optional:nacos:traffic-governance.yaml?refreshEnabled=true"
       # actuator.yaml：管理端点访问令牌、暴露范围与健康详情策略。 必须存在；refreshEnabled=true 开启配置刷新。
       - "nacos:actuator.yaml?refreshEnabled=true"
-      # security-jwt.yaml：人员访问 JWT 的签名密钥与签发方。 必须存在；refreshEnabled=true 开启配置刷新。
-      - "nacos:security-jwt.yaml?refreshEnabled=true"
       # security-auth.yaml：认证、鉴权、Token 和安全过滤公共配置。
       - "optional:nacos:security-auth.yaml?refreshEnabled=true"
       # swagger.yaml：OpenAPI/Swagger 展示公共开关与分组配置。

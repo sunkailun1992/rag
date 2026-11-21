@@ -112,7 +112,7 @@ python3 -m evaluation.live_compare
 | `RAG_ENGINE_RERANK_MODEL` | 可选，默认 `qwen3-rerank` |
 | `RAG_ENGINE_RERANK_SCORE_THRESHOLD` | 可选，默认 `0.5`；两种模式使用同一 rerank 相关度阈值，实值记录到报告 |
 
-不需要现有引擎服务的 `RAG_ENGINE_API_KEY`；脚本不监听端口。既有 `RAG_ENGINE_COLLECTION` 不会被采用，临时名称只由脚本生成且必须匹配 `rag_eval_<32位随机十六进制>`，没有指定任意 collection 的命令参数。不会访问、修改或删除 `ai_chat_files`，也不调整 Nacos。
+不需要 Keycloak 或现有引擎服务的令牌；脚本不监听端口，签发方与公钥地址只填保留域名占位以满足设置校验，不会被访问。既有 `RAG_ENGINE_COLLECTION` 不会被采用，临时名称只由脚本生成且必须匹配 `rag_eval_<32位随机十六进制>`，没有指定任意 collection 的命令参数。不会访问、修改或删除 `ai_chat_files`，也不调整 Nacos。
 
 注入上述环境后，显式确认真实调用与临时写入：
 

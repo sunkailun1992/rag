@@ -52,16 +52,16 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: sunkailun1992/rpc-api
-          # Match the exact com:rpc-api:1.0.9 dependency when main advances.
-          ref: 8021adbcae7cf1c8c1bd157bf57d482c6fa439ac
+          # Match the exact com:rpc-api:2.0.0 dependency when main advances.
+          ref: 7f840d43c2e85efeabc3f6917298eab8b04e67fc
           path: .ci-rpc-api
 
       - name: Checkout utils dependency
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: sunkailun1992/utils
-          # Match com:utils:1.7.2 exactly when dependency main advances.
-          ref: afac68bfe8f146eff89f70b697a815ca00ce5616 # com:utils 1.7.2
+          # Match com:utils:2.0.2 exactly when dependency main advances.
+          ref: 00b1ba7f1a758ab54b0ed147a76b3b78ba30be55 # com:utils 2.0.2
           path: .ci-utils
 
       - name: Hide CI dependency checkout from scans
@@ -159,7 +159,8 @@ jobs:
             docker run -d --name acceptance --memory=2g --cpus=2 --pids-limit=64 --read-only --tmpfs /tmp:rw,size=256m,mode=1777 -e RAG_OCR_API_KEY="$key" rag-ocr:check
             docker exec acceptance python scripts/acceptance.py --url http://127.0.0.1:8092 --output /tmp/acceptance.json
           else
-            docker run -d --name acceptance --memory=1536m --cpus=1 --pids-limit=64 --read-only --tmpfs /tmp:rw,size=32m,mode=1777 -e RAG_ENGINE_API_KEY="$key" rag-engine:check
+            # 引擎只收 Keycloak 签的令牌：签发方取保留域名，公钥由冒烟脚本在容器内 18081 端口起的合成签发方提供。
+            docker run -d --name acceptance --memory=1536m --cpus=1 --pids-limit=64 --read-only --tmpfs /tmp:rw,size=32m,mode=1777 -e RAG_ENGINE_KEYCLOAK_ISSUER=https://keycloak.invalid/realms/github-dev -e RAG_ENGINE_JWKS_URL=http://127.0.0.1:18081/certs rag-engine:check
             docker exec acceptance python scripts/container_smoke.py
           fi
           docker inspect acceptance --format 'OOMKilled={{.State.OOMKilled}} Memory={{.HostConfig.Memory}} NanoCpus={{.HostConfig.NanoCpus}}'

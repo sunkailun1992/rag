@@ -10,7 +10,6 @@ import json
 import logging
 import math
 import re
-import secrets
 import signal
 import statistics
 import subprocess
@@ -135,8 +134,9 @@ def load_settings(collection: str):
     if not COLLECTION_PATTERN.fullmatch(collection):
         raise LiveError("UNSAFE_COLLECTION_NAME")
     # 显式覆盖 collection 和预算；忽略已有业务 collection / hybrid 开关环境值。
-    # 此脚本直接调用内部函数，不监听端口；随机服务 key 只满足 Settings 契约。
-    settings = Settings(api_key=secrets.token_urlsafe(32), collection=collection,
+    # 此脚本直接调用内部函数，不监听端口；签发方与公钥地址只填保留域名占位，满足 Settings 契约，不会被访问。
+    settings = Settings(keycloak_issuer="https://keycloak.invalid/realms/evaluation",
+                        jwks_url="http://keycloak.invalid/certs", collection=collection,
                         retrieval_timeout_seconds=3.0, rerank_timeout_seconds=0.8, hybrid_enabled=False)
     if not settings.qdrant_url or not settings.qwen_base_url or not settings.qwen_api_key.get_secret_value():
         raise LiveError("REQUIRED_ENVIRONMENT_MISSING")

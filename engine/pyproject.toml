@@ -1,6 +1,6 @@
 [project]
 name = "kellen-rag-engine"
-version = "0.3.5"
+version = "0.4.0"
 description = "Java RAG 的受控文档解析与检索引擎"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -16,6 +16,7 @@ dependencies = [
   "opentelemetry-sdk==1.45.2",
   "opentelemetry-exporter-otlp-proto-http==1.45.2",
   "prometheus-client==0.26.0",
+  "pyjwt[crypto]==2.15.1",
 ]
 
 [dependency-groups]
@@ -30,6 +31,8 @@ packages = ["src/rag_engine"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 测试与容器验收共用 scripts/synthetic_issuer.py（合成签发方）。
+pythonpath = ["scripts"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 

@@ -34,7 +34,7 @@ Neo4j路径的Java快照使用Qdrant payload selector，仅读取tenant/KB/ACTIV
 
 ## 内部契约（统一 camelCase）
 
-所有 `/v1/graphs/**` 接口要求内部 Service Bearer 和可信 `X-Tenant-Id`；租户不在 JSON 中接收。图请求体上限独立于小型检索请求，最大 8 MiB。
+所有 `/v1/graphs/**` 接口要求 rag 的访问令牌（Keycloak 客户端凭证，`azp=github-rag`）和可信 `X-Tenant-Id`；租户不在 JSON 中接收。图请求体上限独立于小型检索请求，最大 8 MiB。
 
 `ActiveGraphSource` 必填：`pointId, documentId, documentCode, documentVersion(int), documentRevision(long), chunkId, contentSha256`。
 

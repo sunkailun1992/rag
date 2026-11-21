@@ -7,7 +7,7 @@ import time
 
 import httpx
 import pytest
-from conftest import auth
+from conftest import auth, scrape_auth
 from fastapi.testclient import TestClient
 
 from rag_engine.app import create_app
@@ -17,7 +17,7 @@ from rag_engine.app import create_app
 def test_metrics_require_service_bearer_without_tenant(settings, headers):
     with TestClient(create_app(settings)) as client:
         assert client.get("/metrics", headers=headers).status_code == 401
-        response = client.get("/metrics", headers={"Authorization": auth(settings)["Authorization"]})
+        response = client.get("/metrics", headers=scrape_auth())
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-store"
         assert "rag_engine_requests" in response.text
@@ -25,13 +25,13 @@ def test_metrics_require_service_bearer_without_tenant(settings, headers):
 
 def test_metrics_reject_duplicate_bearer_and_use_only_bounded_labels(settings):
     with TestClient(create_app(settings)) as client:
-        doubled = [("Authorization", auth(settings)["Authorization"])] * 2
+        doubled = [("Authorization", scrape_auth()["Authorization"])] * 2
         assert client.get("/metrics", headers=doubled).status_code == 401
         client.get(
             "/v1/graphs/builds/private-id", params={"knowledgeBase": "private-kb"}, headers=auth(settings)
         )
         client.get("/private-path-secret", headers=auth(settings))
-        response = client.get("/metrics", headers=auth(settings))
+        response = client.get("/metrics", headers=scrape_auth())
     assert response.status_code == 200
     for secret in ("private-id", "private-kb", "private-path-secret", "tenant-a", "trace_id", "source_hash"):
         assert secret not in response.text
@@ -262,7 +262,7 @@ def test_http_200_degradation_and_empty_results_have_business_metrics(settings):
 
     with TestClient(create_app(settings, httpx.MockTransport(upstream))) as client:
         assert client.post("/v1/retrievals", json=retrieval_body(), headers=auth(settings)).json()["degraded"]
-        metrics = client.get("/metrics", headers=auth(settings)).text
+        metrics = client.get("/metrics", headers=scrape_auth()).text
     assert 'rag_engine_requests_total{method="POST",result="degraded",route="/v1/retrievals"} 1.0' in metrics
     assert 'rag_engine_retrievals_total{mode="dense",result="degraded"} 1.0' in metrics
     assert 'stage="embedding"' in metrics and 'stage="recall"' in metrics and 'stage="rerank"' in metrics
@@ -337,7 +337,9 @@ def test_empty_otlp_endpoint_is_rejected_before_exporter_env_fallback(settings):
     from rag_engine.config import Settings
 
     with pytest.raises(ValidationError):
-        Settings(api_key=settings.api_key, otlp_traces_endpoint="")
+        Settings(
+            keycloak_issuer=settings.keycloak_issuer, jwks_url=settings.jwks_url, otlp_traces_endpoint=""
+        )
 
 
 def test_malformed_logging_call_cannot_expose_args_or_break_request(settings, caplog):
@@ -414,7 +416,7 @@ def test_default_runtime_events_use_stderr_json_without_stdout_protocol_noise():
             """
 from rag_engine.config import Settings
 from rag_engine.observability import Observability
-obs = Observability(Settings(api_key="x"*32))
+obs = Observability(Settings(keycloak_issuer="https://keycloak.invalid/r", jwks_url="http://keycloak.invalid/c"))
 with obs.activate(), obs.operation("parse"):
     pass
 obs.shutdown()
@@ -495,7 +497,7 @@ def test_invalid_rerank_response_is_a_failed_stage_and_degraded_business_result(
 
     with TestClient(create_app(settings, httpx.MockTransport(upstream))) as client:
         response = client.post("/v1/retrievals", json=retrieval_body(), headers=auth(settings))
-        metrics = client.get("/metrics", headers=auth(settings)).text
+        metrics = client.get("/metrics", headers=scrape_auth()).text
     assert response.status_code == 200 and response.json()["degraded"]
     assert 'rag_engine_stage_duration_seconds_count{result="failed",stage="rerank"} 1.0' in metrics
 
@@ -512,7 +514,7 @@ def test_graph_degradation_is_observed_even_when_dense_retrieval_succeeds(settin
     monkeypatch.setattr(app_module, "retrieve", retrieve)
     with TestClient(create_app(settings)) as client:
         response = client.post("/v1/retrievals", json=retrieval_body(), headers=auth(settings))
-        metrics = client.get("/metrics", headers=auth(settings)).text
+        metrics = client.get("/metrics", headers=scrape_auth()).text
     assert response.status_code == 200
     assert 'rag_engine_requests_total{method="POST",result="degraded",route="/v1/retrievals"} 1.0' in metrics
 

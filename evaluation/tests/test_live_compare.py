@@ -86,7 +86,8 @@ class LiveProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.corpus, self.questions = live_compare.load_fixture()
         self.questions = self.questions[:2]
         self.report = live_compare.new_plan(self.corpus, self.questions, arguments())
-        self.settings = Settings(api_key="test-only-service-key-never-used-on-network", embedding_dimension=3,
+        self.settings = Settings(keycloak_issuer="https://keycloak.invalid/realms/evaluation",
+                                 jwks_url="http://keycloak.invalid/certs", embedding_dimension=3,
                                  qdrant_url="http://qdrant.test", qwen_base_url="https://qwen.test/v1",
                                  qwen_api_key="test-only-model-secret", collection=self.report["temporaryCollection"])
         self.exists = False

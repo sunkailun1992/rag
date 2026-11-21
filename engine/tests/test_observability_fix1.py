@@ -25,7 +25,8 @@ def test_production_uvicorn_stderr_is_jsonl_and_stdout_stays_empty(settings):
     address = listener.getsockname()
     environment = {key: value for key, value in os.environ.items() if not key.startswith("RAG_ENGINE_")}
     environment.update(
-        RAG_ENGINE_API_KEY=settings.api_key.get_secret_value(),
+        RAG_ENGINE_KEYCLOAK_ISSUER=settings.keycloak_issuer,
+        RAG_ENGINE_JWKS_URL=settings.jwks_url,
         RAG_ENGINE_OBSERVABILITY_ENVIRONMENT="review-test",
     )
     # 最终字节回归无需未消费PIPE，小容量pipe会阻塞应用而不是仅捕获日志。
@@ -87,7 +88,7 @@ def test_production_uvicorn_stderr_is_jsonl_and_stdout_stays_empty(settings):
             "rag_dependency_diagnostic",
         }
         assert all(
-            event["service"] == {"name": "rag-engine", "version": "0.3.5", "environment": "review-test"}
+            event["service"] == {"name": "rag-engine", "version": "0.4.0", "environment": "review-test"}
             for event in events
         )
 
@@ -97,7 +98,7 @@ def test_duplicate_diagnostic_keys_cannot_survive_final_stderr():
 import logging
 from rag_engine.config import Settings
 from rag_engine.observability import Observability
-obs = Observability(Settings(api_key="x"*32))
+obs = Observability(Settings(keycloak_issuer="https://keycloak.invalid/r", jwks_url="http://keycloak.invalid/c"))
 logging.getLogger("rag_engine").warning("rag_graph_worker_diagnostic data=%s",
     '{"stage":"synthetic-secret","stage":"INPUT","exception":"OTHER","frames":[]}')
 logging.getLogger("rag_engine").warning("rag_graph_worker_diagnostic data=%s",

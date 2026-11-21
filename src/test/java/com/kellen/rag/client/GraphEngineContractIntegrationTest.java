@@ -7,6 +7,8 @@ import com.kellen.rag.model.ActiveGraphSource;
 import com.kellen.rag.model.KnowledgeGraphViewMode;
 import com.kellen.rag.model.StoredVectorPoint;
 import com.kellen.rag.service.impl.DefaultRagKnowledgeGraphService;
+import com.kellen.rag.support.EngineTokenFixture;
+import com.kellen.security.oauth2.client.FleetOAuth2Clients;
 import com.kellen.utils.context.TenantContextHolder;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -54,6 +56,7 @@ class GraphEngineContractIntegrationTest {
             DefaultRagKnowledgeGraphService.class})
     static class TestConfig {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
+        @Bean FleetOAuth2Clients oauth2Clients() { return EngineTokenFixture.fixedToken(); }
     }
 
     @Autowired private RagEngineClient client;
@@ -80,7 +83,7 @@ class GraphEngineContractIntegrationTest {
     @BeforeEach
     void startInternalUpstream() throws Exception {
         tenant = UUID.randomUUID().toString();
-        key = UUID.randomUUID().toString() + UUID.randomUUID();
+        key = EngineTokenFixture.TOKEN;
         TenantContextHolder.setTenantId(tenant);
         status = 200;
         delayMillis = 0;
@@ -110,7 +113,6 @@ class GraphEngineContractIntegrationTest {
         });
         server.start();
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
-        properties.setApiKey(key);
         properties.setGraphTimeoutMillis(2000);
         properties.setGraphStatusTimeoutMillis(1000);
         properties.setMaxResponseBytes(1024 * 1024);

@@ -40,7 +40,7 @@ async def run_worker(payload, settings, remaining: float):
     stage = "ENCODE_INPUT"
     try:
         config = settings.model_dump(mode="json")
-        for name in ["api_key", "qdrant_api_key", "qwen_api_key", "neo4j_password", "ocr_api_key"]:
+        for name in ["qdrant_api_key", "qwen_api_key", "neo4j_password", "ocr_api_key"]:
             config[name] = getattr(settings, name).get_secret_value()
         raw = json.dumps({**payload, "settings": config}, ensure_ascii=False).encode()
         stage = "SPAWN"

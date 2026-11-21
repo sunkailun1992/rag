@@ -67,10 +67,11 @@ async def test_api_total_deadline_kills_and_reaps_real_split_worker(settings, mo
     secret_filename = "private-diagnostic-filename.pdf"
     caplog.set_level(logging.WARNING, logger="rag_engine")
     app = create_app(settings)
+    headers = auth(settings)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://engine") as api:
             response = await api.post(
-                "/v1/parses", json=parse_payload(filename=secret_filename), headers=auth(settings)
+                "/v1/parses", json=parse_payload(filename=secret_filename), headers=headers
             )
     assert response.status_code == 504
     assert response.json() == {"error": {"code": "PARSER_TIMEOUT"}}
@@ -81,7 +82,7 @@ async def test_api_total_deadline_kills_and_reaps_real_split_worker(settings, mo
     assert "phase=split" in caplog.text and "reason=cancelled" in caplog.text
     assert secret_filename not in caplog.text
     assert "A synthetic knowledge document." not in caplog.text
-    assert settings.api_key.get_secret_value() not in caplog.text
+    assert headers["Authorization"].removeprefix("Bearer ") not in caplog.text
 
 
 @pytest.mark.asyncio

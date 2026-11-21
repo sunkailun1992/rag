@@ -33,7 +33,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from rag_engine.errors import GRAPH_MODEL_CODES, VALIDATION_REASONS, EngineError
 
-VERSION = "0.3.5"
+VERSION = "0.4.0"
 HTTP_METHODS = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "OTHER"}
 )
@@ -95,6 +95,9 @@ SAFE_TEMPLATES = frozenset(
     [
         "%s code=%s reason=%s",
         "%s code=%s reason=%s source_hash=%s",
+        "rag_engine_auth_failed code=CLIENT_NOT_ALLOWED",
+        "rag_engine_auth_failed code=JWKS_UNAVAILABLE",
+        "rag_engine_auth_failed code=TOKEN_INVALID",
         "rag_engine_failed code=%s status=%d",
         "rag_graph_build_failed code=%s",
         "rag_graph_failed code=GRAPH_STORE_UNAVAILABLE",

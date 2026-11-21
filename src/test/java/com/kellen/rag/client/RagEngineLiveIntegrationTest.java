@@ -4,6 +4,7 @@ import com.kellen.rag.config.RagEngineProperties;
 import com.kellen.rag.config.RagVectorProperties;
 import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.parser.KnowledgeDocumentParser;
+import com.kellen.rag.support.EngineTokenFixture;
 import com.kellen.utils.context.TenantContextHolder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,12 +15,17 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** 由 scripts/verify-rag-engine.py 启动真实 Python 进程，校验跨语言边界而非模拟响应。 */
+/**
+ * 由 scripts/verify-rag-engine.py 启动真实 Python 进程，校验跨语言边界而非模拟响应。脚本起本机回环 JWKS、签出受众
+ * github-rag-engine、azp github-rag 的 RS256 令牌放进 RAG_ENGINE_LIVE_TOKEN；引擎按这个签发方真实校验。
+ */
 class RagEngineLiveIntegrationTest {
+    private final AtomicReference<String> token = new AtomicReference<>();
     private RagEngineProperties config;
     private RagEngineClient client;
     private KnowledgeDocumentParser parser;
@@ -28,10 +34,10 @@ class RagEngineLiveIntegrationTest {
         config = new RagEngineProperties();
         config.setParseEnabled(true);
         config.setBaseUrl(System.getenv("RAG_ENGINE_LIVE_URL"));
-        config.setApiKey(System.getenv("RAG_ENGINE_LIVE_KEY"));
+        token.set(System.getenv("RAG_ENGINE_LIVE_TOKEN"));
         assertThat(config.getBaseUrl()).as("Run scripts/verify-rag-engine.py").isNotBlank();
         RagVectorProperties vector = new RagVectorProperties();
-        client = new RagEngineClient(config, vector, new ObjectMapper());
+        client = new RagEngineClient(config, vector, new ObjectMapper(), EngineTokenFixture.from(token::get));
         parser = new KnowledgeDocumentParser(vector, client);
         TenantContextHolder.setTenantId("engine-live-fixture");
     }
@@ -54,7 +60,7 @@ class RagEngineLiveIntegrationTest {
     }
 
     @Test void shouldRejectIncorrectServiceIdentity() {
-        config.setApiKey("deliberately-invalid-contract-credential");
+        token.set("deliberately-invalid-contract-credential");
         assertThatThrownBy(() -> parser.parse("fixture.pdf", "Fixture", pdf()))
                 .isInstanceOf(ExternalServiceException.class)
                 .hasMessageContaining("401");

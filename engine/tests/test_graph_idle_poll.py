@@ -39,7 +39,8 @@ class Repository:
 
 def _settings_from_environment(settings):
     return Settings(
-        api_key=settings.api_key,
+        keycloak_issuer=settings.keycloak_issuer,
+        jwks_url=settings.jwks_url,
         qwen_api_key=settings.qwen_api_key,
         qwen_base_url=settings.qwen_base_url,
         qdrant_url=settings.qdrant_url,

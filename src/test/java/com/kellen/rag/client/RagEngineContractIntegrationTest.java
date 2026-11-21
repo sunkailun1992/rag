@@ -6,9 +6,11 @@ import com.kellen.rag.exception.ExternalServiceException;
 import com.kellen.rag.model.ParsedKnowledgeDocument;
 import com.kellen.rag.rpc.RagRetrievalRpcServiceImpl;
 import com.kellen.rag.service.impl.DefaultRagRetrievalService;
+import com.kellen.rag.support.EngineTokenFixture;
 import com.kellen.rpc.rag.RagRetrievalRpcDTO;
 import com.kellen.rpc.rag.RagRetrievalRpcRequest;
 import com.kellen.rpc.rag.RagRetrievalRpcService;
+import com.kellen.security.oauth2.client.FleetOAuth2Clients;
 import com.kellen.traffic.CanaryContext;
 import com.kellen.traffic.CanaryGrant;
 import com.kellen.utils.context.TenantContextHolder;
@@ -35,6 +37,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -76,12 +79,17 @@ class RagEngineContractIntegrationTest {
             DefaultRagRetrievalService.class, RagRetrievalRpcServiceImpl.class})
     static class TestConfig {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
+        @Bean FleetOAuth2Clients oauth2Clients() { return EngineTokenFixture.from(TOKEN::get); }
     }
+
+    /** 引擎客户端取到的客户端凭证令牌；置为 null 模拟取不到令牌。 */
+    static final AtomicReference<String> TOKEN = new AtomicReference<>(EngineTokenFixture.TOKEN);
 
     @BeforeEach
     void startUpstream() throws Exception {
         tenant = UUID.randomUUID().toString();
-        key = UUID.randomUUID().toString() + UUID.randomUUID();
+        key = EngineTokenFixture.TOKEN;
+        TOKEN.set(key);
         TenantContextHolder.setTenantId(tenant);
         requests.set(0);
         status = 200;
@@ -109,7 +117,6 @@ class RagEngineContractIntegrationTest {
         });
         server.start();
         engine.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
-        engine.setApiKey(key);
         engine.setParseEnabled(true);
         engine.setRetrievalTimeoutMillis(3500);
         engine.setParseTimeoutMillis(1000);
@@ -256,8 +263,8 @@ class RagEngineContractIntegrationTest {
     }
 
     @Test
-    void shouldRejectMissingServiceKeyBeforeAnyNetworkRequest() {
-        engine.setApiKey("");
+    void shouldRejectMissingServiceTokenBeforeAnyNetworkRequest() {
+        TOKEN.set(null);
         assertThatThrownBy(this::retrieve).isInstanceOf(ExternalServiceException.class);
         assertThat(requests.get()).isZero();
     }

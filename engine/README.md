@@ -13,6 +13,8 @@
 
 ## 启动
 
+Engine `0.4.0` 改用 Keycloak 统一身份，删除与 Java 共享的服务密钥（`RAG_ENGINE_API_KEY`）。Java 用 `github-rag` 客户端凭证向 Keycloak 取访问令牌（受众 `github-rag-engine`）；引擎用 PyJWT 校验：只收 RS256（HS*、none 一律拒绝，杜绝算法混淆），签发方与 `RAG_ENGINE_KEYCLOAK_ISSUER` 逐字相等，受众含 `github-rag-engine`，必须带 `exp`（允许 60 秒时钟偏差），最后按路径核对 `azp`：`/v1/**` 只给 `github-rag`，`/metrics` 只给 `github-prometheus`。公钥经 `RAG_ENGINE_JWKS_URL` 直连取得（NAS 上走编排内网的 Keycloak HTTP 端口，不经宿主端口、代理与跳转，响应上限 50 KiB），缓存 5 分钟，遇到未知 `kid` 才强制刷新、两次强制刷新至少隔 30 秒；2 秒内取不到公钥按 401 处理并记 `rag_engine_auth_failed code=JWKS_UNAVAILABLE`。令牌无效返回 401（`WWW-Authenticate: Bearer error="invalid_token"`，没带令牌时只给 `Bearer`），令牌有效但调用方不对返回 403（`insufficient_scope`），诊断只记固定码 `TOKEN_INVALID` / `CLIENT_NOT_ALLOWED`，不记令牌与声明。依据 RFC 8725、RFC 9068、RFC 6750，校验项与 Spring Security 资源服务器一致。测试与容器验收用 `scripts/synthetic_issuer.py` 在本机回环上起合成签发方，公钥同样经真实 HTTP 取得。
+
 Engine `0.3.5` 增加 Qdrant 保温，防止长时间空闲后首个检索冷读机械盘。Qdrant 1.20 的 payload 与向量都落在 mmap 文件上，`on_disk_payload=false` 的内存档（`in_ram_mmap`）也只是加载时预读进系统页缓存，NAS 内存紧时照样会被挤出：2026-11-19 空闲 4 小时后首查召回 672 ms，图扩展回读超出 0.4 秒预算；2026-11-20 距上次查询约 20 分钟后实跑一轮保温，第一轮 671 ms、第二轮 26 ms。引擎每 `RAG_ENGINE_QDRANT_WARMUP_SECONDS`（默认300秒，0 关闭）只读执行一轮：按页翻遍 payload（只取 `tenant_id`，Qdrant 仍读出整条 payload）、一次精确检索扫过全部稠密向量、一次 HNSW 检索触碰索引图，混合检索开启时再做一次稀疏检索；结果即弃，不记录内容，每轮至多翻 20 页（2 万点）。保温不计入就绪，启动后先等一个间隔再开始，失败只记 `rag_vector_warmup_failed code=VECTOR_STORE_UNAVAILABLE` 并在下一周期重试；每轮留一条 `vector_warmup` 阶段事件与耗时指标。新建集合同时改为 `on_disk_payload=false`（Java `1.3.4`），已有集合的修改方法见根 README。
 
 Engine `0.3.4` 修正预热覆盖面。2026-11-20 NAS 实测 Neo4j 5.26 计划缓存除列表元素个数外，顶层字符串参数（tenant、kb）也按长度分档，档位同为 1、2–10、11–100；映射值与列表元素里的字符串长度不影响。0.3.1 起预热只用 11 位的 plan-warmup 作 tenant/kb，真实 kb 如 general（7 位）落在 2–10 档，一个计划也命不中：0.3.3 上线后清缓存再等预热，首个灰度对话的图扩展仍要 395 ms，单独复现时种子 5、20 个的首次执行各编译约 230 ms。预热改为 tenant 长度×kb 长度×列表长度三维档位组合各执行一次（邻居扩展、发布核对各 27 条），占位 tenant/kb 由合法 ID 字符集之外的 `~` 组成，永远匹配不到真实范围。实测清缓存后首轮编译 54 条共 7.2 秒，此后每轮 153 ms；3 种 tenant 长度×5 种种子数的真实形状首次执行，服务端最慢 1 ms。
@@ -45,11 +47,11 @@ LiteLLM选择`cohere`并由运维提供完整`/v1/rerank`地址，继续用既�
 ```sh
 cd engine
 uv sync --frozen
-# 先在当前 shell 注入 RAG_ENGINE_API_KEY（至少 32 字符），其余见 .env.example。
+# 先在当前 shell 注入 RAG_ENGINE_KEYCLOAK_ISSUER 与 RAG_ENGINE_JWKS_URL，其余见 .env.example。
 uv run --frozen uvicorn rag_engine.app:create_app --factory --host 127.0.0.1 --port 8091 --limit-concurrency 16 --no-access-log
 ```
 
-缺少服务密钥或密钥过短会拒绝启动。不要将 Java 用户 JWT 当服务密钥。生产通过私有环境文件、Secret 管理或 Nacos 私有渲染注入；`.env` 不进入 Git。`uvicorn` 不自动读取 `.env`，本机可用 `--env-file .env` 显式读取；Compose 的 `env_file` 会读取它。
+缺少签发方或公钥地址、签发方不是 HTTPS 会拒绝启动。引擎只认 Keycloak 签给 `github-rag-engine` 的客户端凭证令牌，网关转来的用户令牌（受众 `github-api`）一律 401。生产通过私有环境文件或 Compose 的 `env_file` 注入；`.env` 不进入 Git。`uvicorn` 不自动读取 `.env`，本机可用 `--env-file .env` 显式读取；Compose 的 `env_file` 会读取它。
 
 `compose.yaml` 只启动轻量引擎，限制 1.5 GiB / 1 CPU / 64 进程；`.env.example` 建议解析并发 1。容器不包含 PaddleOCR 权重，不自动下载任何 OCR/embedding 模型。重型 OCR 单独运行，通过 `RAG_ENGINE_OCR_URL` 接入。Compose 默认仅映射 loopback；跨主机访问需明确配置内网监听、TLS/反向代理及防火墙，不能直接公开到互联网。
 
@@ -64,13 +66,13 @@ Engine `0.2.7` 的图谱提交支持可选不透明 `submissionKey`，按可信t
 | `GET /health` | 无认证，检查本进程及已启用图 worker 的本地生命周期 | 健康200 `{status:"up"}`；图谱开启但 worker 不可用时503 `{status:"down"}`；不证明 OCR、模型、Qdrant 可达 |
 | `POST /v1/parses` | `sourceName/title/contentBase64/maxChunkCharacters` | `title/sourceName/sourceType/chunks` |
 | `POST /v1/retrievals` | `query/knowledgeBase/topK/candidateCount/similarityThreshold/maxContextCharacters` | `hits/mode/degraded` |
-| `GET /v1/openapi.json` | 服务凭据和租户头 | 实际运行的 OpenAPI schema |
+| `GET /v1/openapi.json` | rag 的访问令牌和租户头 | 实际运行的 OpenAPI schema |
 
-所有 `/v1/*` 必须同时携带 `Authorization: Bearer <service-key>` 和 `X-Tenant-Id`。Java 必须从可信 `TenantContextHolder` 取租户，不能把前端传值直接转发。服务密钥代表可信 Java 门面，并不为不可信客户端授予任意租户身份；前端必须访问 Java 权限接口。
+所有 `/v1/*` 必须同时携带 `Authorization: Bearer <访问令牌>`（Keycloak 签发、RS256、受众 `github-rag-engine`、`azp=github-rag`，Java 用 `github-rag` 客户端凭证取得）和 `X-Tenant-Id`。Java 必须从可信 `TenantContextHolder` 取租户，不能把前端传值直接转发。令牌代表可信 Java 门面（机器身份），并不为不可信客户端授予任意租户身份；前端必须访问 Java 权限接口。
 
 解析 chunk 格式：`chunkType/sectionPath/locator/content/metadata`；`metadata` 包含 `page`（从 1 开始）、`block_type`、`bbox`（没有坐标时为 `null`）和 `source_name`。坐标必须是有限非负数且右下角不小于左上角。当 OCR 返回能力说明时，`metadata.ocr_capabilities` 保留 `textRecognition/tableStructure/layoutAnalysis` 布尔值；普通文字识别不冒充表格结构解析。Office XLSX/DOCX 继续使用 Java 原有解析规则。
 
-错误格式为 `{"error":{"code":"稳定错误码"}}`。401 表示服务认证失败，400 表示租户头非法，413/415/422 表示输入/文档限制，429 表示并发已满，502 表示上游协议/隔离验证失败，503 表示依赖未配置/不可用，504 表示总预算耗尽。响应、日志不包含上游正文、查询、文档、密钥或目标地址。
+错误格式为 `{"error":{"code":"稳定错误码"}}`。401 表示访问令牌缺失或无效（取不到 Keycloak 公钥也是 401），403 表示令牌有效但调用方不是该路径允许的客户端，400 表示租户头非法，413/415/422 表示输入/文档限制，429 表示并发已满，502 表示上游协议/隔离验证失败，503 表示依赖未配置/不可用，504 表示总预算耗尽。响应、日志不包含上游正文、查询、文档、密钥或目标地址。
 
 ## 安全与兼容限制
 
@@ -138,7 +140,7 @@ uv run --frozen pytest -q
 
 `RAG_ENGINE_GRAPH_ENABLED=false` 为默认状态，关闭时图接口明确返回 `GRAPH_NOT_CONFIGURED`，原解析/检索保持可用。Java 图接口固定依赖 Engine/Neo4j；Python `RAG_ENGINE_GRAPH_ENABLED` 关闭时返回明确不可用，不能仅凭依赖已安装称已启用。新增直接依赖 `llama-index-graph-stores-neo4j==0.8.0` 与现有 core `0.14.25` 配套；要求 Neo4j 服务端至少 5.23（集成使用 `CALL (variables) {}`），部署建议已核验的 5.26 LTS 与对应 APOC。模型仍走配置的千问 compatible `/chat/completions`，使用 LlamaIndex `CustomLLM` 和原 bounded HTTP，无默认 OpenAI 凭据、embedding 或模型下载。
 
-内部接口均要求 Service Bearer 与可信 `X-Tenant-Id`，JSON 不接受 tenant。`POST /v1/graphs/builds` 接收 `knowledgeBase/activeSources/reconcile`；`POST /v1/graphs/queries` 另接收 `searchText/nodeType/viewMode/limit`；`POST /v1/graphs/deactivations` 接收 `documentId/documentRevision`，返回删除屏障票据；`GET /v1/graphs/builds/{buildId}?knowledgeBase=...` 按 tenant+KB 查询任务状态。请求最多 8 MiB、10000 个来源身份、正文总量12000000字符，超限整次拒绝；每个身份包含 `pointId/documentId/documentCode/documentVersion/documentRevision/chunkId/contentSha256`。来源按64点批量从现有 Qdrant 回读，逐项检查身份、ACTIVE、正文与 Java 语义去重 SHA256，不接受客户端正文、文件路径或远程模型地址。Qdrant dense/sparse schema、向量、模型和维度不因图谱构建改变。
+内部接口均要求 rag 的访问令牌（`azp=github-rag`）与可信 `X-Tenant-Id`，JSON 不接受 tenant。`POST /v1/graphs/builds` 接收 `knowledgeBase/activeSources/reconcile`；`POST /v1/graphs/queries` 另接收 `searchText/nodeType/viewMode/limit`；`POST /v1/graphs/deactivations` 接收 `documentId/documentRevision`，返回删除屏障票据；`GET /v1/graphs/builds/{buildId}?knowledgeBase=...` 按 tenant+KB 查询任务状态。请求最多 8 MiB、10000 个来源身份、正文总量12000000字符，超限整次拒绝；每个身份包含 `pointId/documentId/documentCode/documentVersion/documentRevision/chunkId/contentSha256`。来源按64点批量从现有 Qdrant 回读，逐项检查身份、ACTIVE、正文与 Java 语义去重 SHA256，不接受客户端正文、文件路径或远程模型地址。Qdrant dense/sparse schema、向量、模型和维度不因图谱构建改变。
 
 构建返回持久任务 `QUEUED`，不代表完成。单并发工作进程、有界持久队列、独立总 deadline，超时/取消杀死并回收进程；容器限制RSS，不使用易误杀NumPy映射的RLIMIT_AS。队列满返回429。全局Neo4j租约限制多个引擎同时调度；部署只启动一个Uvicorn worker。重启将中断RUNNING明确标为FAILED，未超时QUEUED可继续。单次任务使用独立staging generation，真实 `SimpleLLMPathExtractor` 后置scope变换后交给 `PropertyGraphIndex(embed_kg_nodes=False)`。每个实体出现的ID含tenant/KB/generation/pointId，实体名字不能跨来源MERGE；谓词使用安全hash类型身份，防同端点不同谓词互相覆盖。模型附加属性和控制字段全部丢弃，原文不会进入运行日志。
 
@@ -194,7 +196,7 @@ NAS 宿主端口由 `RAG_ENGINE_HOST_PORT` 设置，默认 `18091`，避开已�
 
 ## 指标、链路与安全运行事件（0.2.8）
 
-内部 `GET /metrics` 使用与 `/v1/*` 相同的服务 Bearer 密钥，拒绝缺失、错误或重复的 Authorization；采集不要求 `X-Tenant-Id`。部署时将 Prometheus 的 `authorization.credentials_file` 指向 Git 外只读凭据，并继续限制 Engine 私网访问，不能通过公网网关暴露。指标响应设置 `Cache-Control: no-store`，OpenAPI 声明 `ServiceBearer`。
+内部 `GET /metrics` 只收 Prometheus 的访问令牌（同一签发方与受众，`azp=github-prometheus`；rag 的令牌在这里 403），拒绝缺失、错误或重复的 Authorization；采集不要求 `X-Tenant-Id`。Prometheus 用内置 `oauth2` 按客户端凭证向 Keycloak 取令牌（`client_id: github-prometheus`，口令放 Git 外只读文件，经 `client_secret_file` 引用），并继续限制 Engine 私网访问，不能通过公网网关暴露。指标响应设置 `Cache-Control: no-store`，OpenAPI 声明 `ServiceBearer`。
 
 - `rag_engine_requests_total{route,method,result}`：只用有限路由模板与结果，HTTP 200 的检索降级/无命中分别为 `degraded` / `empty`；动态 buildId、URL、query、tenant、KB、ID、hash 不进入标签。
 - `rag_engine_stage_duration_seconds{stage,result}`：解析、检索、embedding、召回、图扩展、rerank，以及父进程 worker、来源重检和发布阶段。单位秒，原有 3 秒总检索 / 0.4 秒图扩展与全部业务预算不变。

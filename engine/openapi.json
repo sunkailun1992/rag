@@ -14,7 +14,10 @@
             "description": "Successful Response"
           },
           "401": {
-            "description": "服务凭据缺失或无效。"
+            "description": "访问令牌缺失或无效。"
+          },
+          "403": {
+            "description": "令牌有效，但不是 Prometheus。"
           }
         },
         "security": [
@@ -89,6 +92,16 @@
             }
           },
           "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "安全错误码，不含请求正文、上游响应或配置值。",
             "content": {
               "application/json": {
@@ -243,6 +256,16 @@
               }
             }
           },
+          "403": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
           "408": {
             "description": "安全错误码，不含请求正文、上游响应或配置值。",
             "content": {
@@ -379,6 +402,16 @@
             }
           },
           "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "安全错误码，不含请求正文、上游响应或配置值。",
             "content": {
               "application/json": {
@@ -533,6 +566,16 @@
               }
             }
           },
+          "403": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
           "408": {
             "description": "安全错误码，不含请求正文、上游响应或配置值。",
             "content": {
@@ -667,6 +710,16 @@
             }
           },
           "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "安全错误码，不含请求正文、上游响应或配置值。",
             "content": {
               "application/json": {
@@ -841,6 +894,16 @@
               }
             }
           },
+          "403": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
           "408": {
             "description": "安全错误码，不含请求正文、上游响应或配置值。",
             "content": {
@@ -985,6 +1048,16 @@
             }
           },
           "401": {
+            "description": "安全错误码，不含请求正文、上游响应或配置值。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineError"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "安全错误码，不含请求正文、上游响应或配置值。",
             "content": {
               "application/json": {
@@ -2145,7 +2218,8 @@
       "ServiceBearer": {
         "type": "http",
         "scheme": "bearer",
-        "description": "仅 Java 门面持有的服务凭据，不接受用户 JWT。"
+        "bearerFormat": "JWT",
+        "description": "Keycloak 签发的客户端凭证访问令牌（RS256，受众 github-rag-engine）：/v1/** 只收 rag（azp github-rag），/metrics 只收 Prometheus（azp github-prometheus）；不接受用户令牌。"
       }
     }
   }

@@ -8,7 +8,7 @@ Java `rag` 继续拥有认证、租户、文档版本、幂等、Qdrant 写入�
 
 ## 服务契约
 
-- Python `/v1/*` 只接受 Java 门面调用，要求服务 Bearer 密钥和 `X-Tenant-Id`。密钥只来自环境/Nacos，租户只来自 Java 当前可信上下文；Python 不能公开给浏览器。
+- Python `/v1/*` 只接受 Java 门面调用，要求 Keycloak 签给 `github-rag-engine` 的客户端凭证令牌（`azp=github-rag`，Java 用 `github-rag` 客户端凭证取得）和 `X-Tenant-Id`。引擎按签发方与 JWKS 验证，没有共享密钥；租户只来自 Java 当前可信上下文；Python 不能公开给浏览器。
 - `POST /v1/parses` 接收 `sourceName/title/contentBase64/maxChunkCharacters`，返回 `title/sourceName/sourceType/chunks`。每个切片含 `chunkType/sectionPath/locator/content/metadata`；metadata 保留页码、区块类型、坐标和来源名。请求不接受 URL 或本机路径。
 - `POST /v1/retrievals` 接收 `query/knowledgeBase/topK/candidateCount/similarityThreshold/maxContextCharacters`，返回 `hits/mode/degraded`；每个 hit 含 `id/score/payload`。必须过滤当前租户、知识库与 ACTIVE 状态，Java 再次验证返回范围。
 - 仅保留默认关闭的 `rag.engine.parse-enabled`，控制 PDF/图片解析。检索和图谱固定调用 Engine/Neo4j，部署前必须配置并验证引擎地址和服务密钥；失败返回原有结构化不可用结果，不叠加旧查询。恢复旧实现须回滚匹配的制品和配置，设置已删除的检索/图谱开关不会生效。
@@ -26,7 +26,7 @@ Java `1.2.5` / Engine `0.2.9` 的协议补丁新增可选 `RAG_ENGINE_RERANK_END
 - [x] 文字 PDF 可在无 OCR、无付费模型的本机环境解析；扫描件没有 OCR 时明确失败，不返回缺页的成功结果。
 - [x] 图片/PDF 检查真实类型、文件大小、页数、切片上限与处理超时；禁止路径穿越和任意 URL 获取。
 - [x] OCR 桩服务验证官方响应转换，真实模型结果另行验收。
-- [x] Java→Python 请求验证 Bearer 与租户；跨租户、跨知识库、非活动数据与损坏响应失败关闭。
+- [x] Java→Python 请求验证访问令牌（签发方、受众、azp、RS256）与租户；跨租户、跨知识库、非活动数据与损坏响应失败关闭。
 - [x] 检索固定经 Engine，失败直接结构化降级且不调用旧检索；PDF/图片解析开关关闭时拒绝该格式，不发解析 HTTP 请求。
 - [x] 50–100 题合成评估集可重复执行，Recall/MRR/nDCG/延迟可计算；合成集不代表真实业务效果。
 - [x] 新依赖锁定，Python 虚拟环境、缓存、运行结果、真实密钥不进 Git。

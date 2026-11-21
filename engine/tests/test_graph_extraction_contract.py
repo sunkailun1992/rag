@@ -5,6 +5,7 @@ import json
 import logging
 
 import pytest
+from conftest import AUTH_SETTINGS
 from llama_index.core import PropertyGraphIndex
 from llama_index.core.graph_stores import SimplePropertyGraphStore
 from llama_index.core.graph_stores.types import KG_NODES_KEY, KG_RELATIONS_KEY, EntityNode, Relation
@@ -446,8 +447,8 @@ def test_extraction_workers_configuration_is_opt_in_and_bounded(settings):
     assert settings.graph_extraction_workers == 1
     for value in [0, 5]:
         with pytest.raises(ValidationError):
-            type(settings)(api_key="synthetic-" * 4, graph_extraction_workers=value)
-    assert type(settings)(api_key="synthetic-" * 4, graph_extraction_workers=4).graph_extraction_workers == 4
+            type(settings)(**AUTH_SETTINGS, graph_extraction_workers=value)
+    assert type(settings)(**AUTH_SETTINGS, graph_extraction_workers=4).graph_extraction_workers == 4
 
 
 @pytest.mark.filterwarnings(

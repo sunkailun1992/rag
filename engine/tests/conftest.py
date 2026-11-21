@@ -7,14 +7,19 @@ import secrets
 import pytest
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+from synthetic_issuer import SyntheticIssuer
 
 from rag_engine.config import Settings
+
+# 整个测试进程共用一个本机回环上的合成 Keycloak；每个应用实例经真实 HTTP 各取一次它的公钥。
+ISSUER = SyntheticIssuer().__enter__()
+AUTH_SETTINGS = {"keycloak_issuer": ISSUER.issuer, "jwks_url": ISSUER.jwks_url}
 
 
 @pytest.fixture
 def settings():
     return Settings(
-        api_key=secrets.token_urlsafe(32),
+        **AUTH_SETTINGS,
         qwen_api_key=secrets.token_urlsafe(32),
         qwen_base_url="https://models.example.test/compatible-mode/v1",
         qdrant_url="https://vectors.example.test",
@@ -23,7 +28,14 @@ def settings():
 
 
 def auth(settings, tenant="tenant-a"):
-    return {"Authorization": "Bearer " + settings.api_key.get_secret_value(), "X-Tenant-Id": tenant}
+    """rag（azp github-rag）调引擎的请求头：合成签发方现签的客户端凭证令牌与当前租户。"""
+    assert settings.jwks_url == ISSUER.jwks_url
+    return {"Authorization": "Bearer " + ISSUER.token("github-rag"), "X-Tenant-Id": tenant}
+
+
+def scrape_auth():
+    """Prometheus（azp github-prometheus）抓 /metrics 的请求头；/metrics 不要租户头。"""
+    return {"Authorization": "Bearer " + ISSUER.token("github-prometheus")}
 
 
 def pdf_bytes(text="A synthetic knowledge document.", count=1):

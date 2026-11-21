@@ -4,7 +4,7 @@ import json
 
 import httpx
 import pytest
-from conftest import auth, parse_payload, pdf_bytes
+from conftest import AUTH_SETTINGS, ISSUER, auth, parse_payload, pdf_bytes
 from fastapi.testclient import TestClient
 from PIL import Image
 from pydantic import ValidationError
@@ -16,10 +16,41 @@ from rag_engine.models import ParseRequest
 from rag_engine.parsing import ocr_blocks, split_blocks
 
 
-def test_missing_key_refuses_start(monkeypatch):
-    monkeypatch.delenv("RAG_ENGINE_API_KEY", raising=False)
+def test_missing_issuer_or_jwks_refuses_start(monkeypatch):
+    for name in ("RAG_ENGINE_KEYCLOAK_ISSUER", "RAG_ENGINE_JWKS_URL"):
+        monkeypatch.delenv(name, raising=False)
     with pytest.raises(ValidationError):
         Settings()
+    with pytest.raises(ValidationError):
+        Settings(keycloak_issuer=ISSUER.issuer)
+    with pytest.raises(ValidationError):
+        Settings(jwks_url=ISSUER.jwks_url)
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "http://keycloak.invalid/realms/github-dev",
+        "https://user:secret@keycloak.invalid/realms/github-dev",
+        "https://keycloak.invalid/realms/github-dev?realm=other",
+        "https://keycloak.invalid/realms/github-dev#x",
+        "https://keycloak.invalid/realms/github dev",
+        "keycloak.invalid/realms/github-dev",
+    ],
+)
+def test_issuer_must_be_plain_https_and_is_kept_verbatim(issuer):
+    with pytest.raises(ValidationError):
+        Settings(keycloak_issuer=issuer, jwks_url=ISSUER.jwks_url)
+    # 逐字比对：不像服务地址那样去掉尾部斜杠。
+    assert Settings(keycloak_issuer=ISSUER.issuer + "/", jwks_url=ISSUER.jwks_url).keycloak_issuer.endswith(
+        "/"
+    )
+
+
+@pytest.mark.parametrize("jwks_url", ["file:///etc/passwd", "http://user:secret@keycloak.invalid/certs"])
+def test_jwks_url_must_be_plain_http_service_url(jwks_url):
+    with pytest.raises(ValidationError):
+        Settings(keycloak_issuer=ISSUER.issuer, jwks_url=jwks_url)
 
 
 @pytest.mark.parametrize("headers,status", [({}, 401), ({"Authorization": "Bearer wrong"}, 401)])
@@ -358,10 +389,10 @@ def test_ocr_rejects_invalid_coordinates(box):
 def test_configuration_validation_never_echoes_secret():
     sample = "private-config-value"
     with pytest.raises(ValidationError) as caught:
-        Settings(api_key=sample)
+        Settings(keycloak_issuer="http://" + sample + ".invalid/realms/x", jwks_url=ISSUER.jwks_url)
     assert sample not in str(caught.value)
     with pytest.raises(ValidationError) as caught:
-        Settings(api_key="x" * 32, qdrant_url="https://user:private-password@example.test")
+        Settings(**AUTH_SETTINGS, qdrant_url="https://user:private-password@example.test")
     assert "private-password" not in str(caught.value)
 
 
@@ -371,6 +402,8 @@ def test_openapi_file_matches_runtime_and_declares_security(settings):
     stored = json.loads(Path(__file__).resolve().parents[1].joinpath("openapi.json").read_text())
     actual = create_app(settings).openapi()
     assert stored == actual
+    scheme = actual["components"]["securitySchemes"]["ServiceBearer"]
+    assert scheme["type"] == "http" and scheme["scheme"] == "bearer" and scheme["bearerFormat"] == "JWT"
     operation = actual["paths"]["/v1/parses"]["post"]
     assert operation["security"] == [{"ServiceBearer": []}]
     assert operation["parameters"][0]["name"] == "X-Tenant-Id"

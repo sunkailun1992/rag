@@ -100,7 +100,11 @@ def test_invalid_relevance_score_is_protocol_failure_not_successful_relevance_fi
 @pytest.mark.parametrize("threshold", [-0.01, 1.01, float("inf"), float("nan")])
 def test_relevance_threshold_rejects_invalid_configuration(settings, threshold):
     with pytest.raises(ValidationError):
-        Settings(api_key=settings.api_key, rerank_score_threshold=threshold)
+        Settings(
+            keycloak_issuer=settings.keycloak_issuer,
+            jwks_url=settings.jwks_url,
+            rerank_score_threshold=threshold,
+        )
 
 
 def test_default_calibrated_threshold_rejects_negative_048_and_keeps_positive_0836(settings):

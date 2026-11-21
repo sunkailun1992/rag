@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import re
-import secrets
 import time
 from contextlib import asynccontextmanager
 
@@ -14,6 +13,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from rag_engine.auth import API_CLIENT, METRICS_CLIENT, TokenVerifier, Verdict
 from rag_engine.config import Settings
 from rag_engine.errors import EngineError
 from rag_engine.graph_jobs import GraphManager
@@ -33,16 +33,29 @@ from rag_engine.vector_warmup import keep_vectors_warm
 logger = logging.getLogger("rag_engine")
 
 
-def error_response(code: str, status: int) -> JSONResponse:
-    return JSONResponse({"error": {"code": code}}, status_code=status, headers={"Cache-Control": "no-store"})
+def error_response(code: str, status: int, challenge: str | None = None) -> JSONResponse:
+    headers = {"Cache-Control": "no-store"}
+    if challenge:
+        headers["WWW-Authenticate"] = challenge
+    return JSONResponse({"error": {"code": code}}, status_code=status, headers=headers)
+
+
+def rejection(verdict: Verdict) -> JSONResponse:
+    """RFC 6750 §3：401 带 Bearer 质询，没带令牌时不给错误码；令牌有效但无权调用时 403。"""
+    if verdict is Verdict.FORBIDDEN:
+        return error_response("FORBIDDEN", 403, 'Bearer error="insufficient_scope"')
+    return error_response(
+        "UNAUTHORIZED", 401, "Bearer" if verdict is Verdict.MISSING else 'Bearer error="invalid_token"'
+    )
 
 
 class RequestBoundary:
-    """在 JSON 反序列化前验证服务凭据与体积，防止无权限大请求消耗解析资源。"""
+    """在 JSON 反序列化前验证访问令牌与体积，防止无权限大请求消耗解析资源。"""
 
-    def __init__(self, app, settings: Settings):
+    def __init__(self, app, settings: Settings, verifier: TokenVerifier):
         self.app = app
         self.settings = settings
+        self.verifier = verifier
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or (not scope["path"].startswith("/v1/") and scope["path"] != "/metrics"):
@@ -51,9 +64,10 @@ class RequestBoundary:
         headers = scope["headers"]
         auth = [v for k, v in headers if k.lower() == b"authorization"]
         tenants = [v for k, v in headers if k.lower() == b"x-tenant-id"]
-        expected = ("Bearer " + self.settings.api_key.get_secret_value()).encode()
-        if len(auth) != 1 or not secrets.compare_digest(auth[0], expected):
-            await error_response("UNAUTHORIZED", 401)(scope, receive, send)
+        client = METRICS_CLIENT if scope["path"] == "/metrics" else API_CLIENT
+        verdict = await self.verifier.verify(auth, client)
+        if verdict is not Verdict.VALID:
+            await rejection(verdict)(scope, receive, send)
             return
         if scope["path"] == "/metrics":
             await self.app(scope, receive, send)
@@ -180,7 +194,11 @@ def create_app(
         openapi_url=None,
     )
     app.state.observability = observation
-    app.add_middleware(RequestBoundary, settings=settings)
+    app.add_middleware(
+        RequestBoundary,
+        settings=settings,
+        verifier=TokenVerifier(settings.keycloak_issuer, settings.jwks_url),
+    )
 
     @app.exception_handler(EngineError)
     async def engine_failure(_request: Request, exception: EngineError):
@@ -324,7 +342,10 @@ def create_app(
                 "ServiceBearer": {
                     "type": "http",
                     "scheme": "bearer",
-                    "description": "仅 Java 门面持有的服务凭据，不接受用户 JWT。",
+                    "bearerFormat": "JWT",
+                    "description": "Keycloak 签发的客户端凭证访问令牌（RS256，受众 github-rag-engine）："
+                    "/v1/** 只收 rag（azp github-rag），/metrics 只收 Prometheus（azp github-prometheus）；"
+                    "不接受用户令牌。",
                 }
             }
             schema["components"].setdefault("schemas", {})["EngineError"] = {
@@ -341,7 +362,10 @@ def create_app(
                 },
             }
             schema["paths"]["/metrics"]["get"]["security"] = [{"ServiceBearer": []}]
-            schema["paths"]["/metrics"]["get"]["responses"]["401"] = {"description": "服务凭据缺失或无效。"}
+            schema["paths"]["/metrics"]["get"]["responses"]["401"] = {"description": "访问令牌缺失或无效。"}
+            schema["paths"]["/metrics"]["get"]["responses"]["403"] = {
+                "description": "令牌有效，但不是 Prometheus。"
+            }
             for path, operations in schema["paths"].items():
                 if not path.startswith("/v1/"):
                     continue
@@ -356,7 +380,7 @@ def create_app(
                             "schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
                         }
                     )
-                    for status in [400, 401, 408, 413, 415, 422, 429, 502, 503, 504]:
+                    for status in [400, 401, 403, 408, 413, 415, 422, 429, 502, 503, 504]:
                         operation["responses"][str(status)] = {
                             "description": "安全错误码，不含请求正文、上游响应或配置值。",
                             "content": {

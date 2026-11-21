@@ -10,7 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RAG_ENGINE_", extra="ignore", hide_input_in_errors=True)
 
-    api_key: SecretStr = Field(min_length=32)
+    # Keycloak 签发方（令牌的 iss），与令牌逐字比对，只接受 HTTPS 地址；只用来比对，不从这里取公钥。
+    # 形如 https://<主机>:18443/realms/github-dev。
+    keycloak_issuer: str = Field(min_length=1, max_length=512)
+    # 取 Keycloak 公钥（JWKS）的完整地址；不跟随跳转、不经代理。NAS 上走编排内网、不经宿主端口：
+    # http://orb-keycloak:8080/realms/github-dev/protocol/openid-connect/certs
+    jwks_url: str = Field(min_length=1, max_length=2048)
     qdrant_url: str = ""
     qdrant_api_key: SecretStr = SecretStr("")
     collection: str = Field(default="knowledge-vectors", pattern=r"^[A-Za-z0-9_-]{1,128}$")
@@ -98,7 +103,26 @@ class Settings(BaseSettings):
             raise ValueError("rerank endpoint must not contain whitespace or controls")
         return value
 
-    @field_validator("qdrant_url", "qwen_base_url", "ocr_url", "otlp_traces_endpoint", "rerank_endpoint")
+    @field_validator("keycloak_issuer")
+    @classmethod
+    def issuer_url(cls, value: str) -> str:
+        """签发方按原样与令牌比对（不去尾部斜杠）；必须是 Keycloak 的 HTTPS 地址。"""
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or any(ord(character) <= 32 or ord(character) == 127 for character in value)
+        ):
+            raise ValueError("issuer must be an absolute https URL without credentials/query")
+        return value
+
+    @field_validator(
+        "qdrant_url", "qwen_base_url", "ocr_url", "otlp_traces_endpoint", "rerank_endpoint", "jwks_url"
+    )
     @classmethod
     def service_url(cls, value: str) -> str:
         """地址只能由运维配置；禁止凭据、查询串与跳转掩盖最终目标。"""

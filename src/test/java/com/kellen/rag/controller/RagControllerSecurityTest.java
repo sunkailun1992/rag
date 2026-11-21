@@ -6,7 +6,7 @@ import com.kellen.rag.service.RagDocumentService;
 import com.kellen.rag.service.RagKnowledgeGraphService;
 import com.kellen.rag.service.RagRetrievalService;
 import com.kellen.rpc.rag.RagRetrievalRpcDTO;
-import com.kellen.security.config.SecurityAuthConfig;
+import com.kellen.rag.support.ResourceServerTestConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -26,7 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static com.kellen.rag.support.MockMvcSecurityUsers.authority;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -41,14 +41,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.config.name=rag-controller-isolated",
         "spring.cloud.nacos.config.enabled=false",
         "spring.cloud.nacos.config.import-check.enabled=false",
-        "spring.cloud.nacos.discovery.enabled=false"
+        "spring.cloud.nacos.discovery.enabled=false",
+        "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://keycloak.invalid/realms/github-dev"
 })
-@Import({SecurityAuthConfig.class, GlobalExceptionHandler.class})
+@Import({ResourceServerTestConfiguration.class, GlobalExceptionHandler.class})
 @ContextConfiguration(classes = {
         RagDocumentController.class,
         RagRetrievalController.class,
         RagKnowledgeGraphController.class,
-        SecurityAuthConfig.class,
+        ResourceServerTestConfiguration.class,
         GlobalExceptionHandler.class,
         RagControllerSecurityTest.TestApplication.class
 })
@@ -76,7 +77,7 @@ class RagControllerSecurityTest {
         when(ragDocumentService.list(null)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/rag/documents")
-                        .with(user("rag-admin").authorities(() -> "rag:document:manage")))
+                        .with(authority("rag:document:manage")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
     }
@@ -84,7 +85,7 @@ class RagControllerSecurityTest {
     @Test
     void shouldRejectDocumentListWithOnlyUserManagePermission() throws Exception {
         mockMvc.perform(get("/api/rag/documents")
-                        .with(user("user-admin").authorities(() -> "user:auth:manage")))
+                        .with(authority("user:auth:manage")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("A0312"));
@@ -98,7 +99,7 @@ class RagControllerSecurityTest {
                 .thenThrow(ExternalServiceException.httpFailure("Qdrant", 404));
 
         mockMvc.perform(get("/api/rag/documents")
-                        .with(user("rag-admin").authorities(() -> "rag:document:manage")))
+                        .with(authority("rag:document:manage")))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("C0100"))
@@ -108,16 +109,17 @@ class RagControllerSecurityTest {
 
     @Test
     void shouldProtectChunkPreviewWithDocumentPermission() throws Exception {
+        // 没带访问令牌：资源服务器在进控制器之前拒绝（401，A0220）；带令牌但缺权限才是 403。
         mockMvc.perform(get("/api/rag/documents/doc-1/chunks"))
-                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("A0312"));
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("A0220"));
         mockMvc.perform(get("/api/rag/documents/doc-1/chunks")
-                        .with(user("viewer").authorities(() -> "rag:retrieval:use")))
+                        .with(authority("rag:retrieval:use")))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(ragDocumentService);
         when(ragDocumentService.chunks("doc-1",20,null)).thenReturn(
                 new com.kellen.rag.entity.vo.RagChunkPageVO("doc-1",List.of(),null));
         mockMvc.perform(get("/api/rag/documents/doc-1/chunks")
-                        .with(user("admin").authorities(() -> "rag:document:manage")))
+                        .with(authority("rag:document:manage")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.documentId").value("doc-1"));
     }
 
@@ -127,7 +129,7 @@ class RagControllerSecurityTest {
                 .thenReturn(new RagRetrievalRpcDTO());
 
         mockMvc.perform(post("/api/rag/retrievals")
-                        .with(user("rag-client").authorities(() -> "rag:retrieval:use"))
+                        .with(authority("rag:retrieval:use"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -141,7 +143,7 @@ class RagControllerSecurityTest {
     @Test
     void shouldRejectRetrievalWithoutRagRetrievalPermission() throws Exception {
         mockMvc.perform(post("/api/rag/retrievals")
-                        .with(user("rag-client").authorities(() -> "rag:document:manage"))
+                        .with(authority("rag:document:manage"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -166,7 +168,7 @@ class RagControllerSecurityTest {
         logger.addAppender(captured);
         try {
             var result = mockMvc.perform(post("/api/rag/retrievals")
-                            .with(user("rag-client").authorities(() -> "rag:retrieval:use"))
+                            .with(authority("rag:retrieval:use"))
                             .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andReturn();
             // 先确认生产MVC实际抛出的外层异常，不能只根据最深层JSON解析cause猜映射。
@@ -198,7 +200,7 @@ class RagControllerSecurityTest {
         when(ragRetrievalService.retrieve(org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new IllegalStateException("SYNTHETIC_INTERNAL_ONLY"));
         var result = mockMvc.perform(post("/api/rag/retrievals")
-                        .with(user("rag-client").authorities(() -> "rag:retrieval:use"))
+                        .with(authority("rag:retrieval:use"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"query\":\"synthetic\"}"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.success").value(false))
@@ -215,7 +217,7 @@ class RagControllerSecurityTest {
                         java.util.Map.of(), java.util.Map.of(), List.of(), List.of()));
 
         mockMvc.perform(get("/api/rag/graphs")
-                        .with(user("rag-viewer").authorities(() -> "rag:graph:view")))
+                        .with(authority("rag:graph:view")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
     }
@@ -223,7 +225,7 @@ class RagControllerSecurityTest {
     @Test
     void shouldRejectGraphQueryWithOnlyDocumentPermission() throws Exception {
         mockMvc.perform(get("/api/rag/graphs")
-                        .with(user("rag-admin").authorities(() -> "rag:document:manage")))
+                        .with(authority("rag:document:manage")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("A0312"));
 
@@ -233,7 +235,7 @@ class RagControllerSecurityTest {
     @Test
     void shouldRequireManagePermissionForGraphSync() throws Exception {
         mockMvc.perform(post("/api/rag/graphs/sync")
-                        .with(user("rag-viewer").authorities(() -> "rag:graph:view")))
+                        .with(authority("rag:graph:view")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("A0312"));
 
@@ -246,7 +248,7 @@ class RagControllerSecurityTest {
                 .thenReturn(new com.kellen.rag.entity.vo.RagGraphSyncVO("general-knowledge", 1, 12, 18));
 
         mockMvc.perform(post("/api/rag/graphs/sync")
-                        .with(user("rag-admin").authorities(() -> "rag:graph:manage")))
+                        .with(authority("rag:graph:manage")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.documentCount").value(1));
     }

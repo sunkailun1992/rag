@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import neo4j
 import pytest
+from conftest import AUTH_SETTINGS
 from llama_index.core.graph_stores.types import EntityNode
 from neo4j import Record
 from pydantic import ValidationError
@@ -94,12 +95,12 @@ async def test_official_storage_queries_use_batch_budget_while_repository_keeps_
 @pytest.mark.parametrize("value", [0, -1, 61, float("nan"), float("inf"), -float("inf")])
 def test_storage_budget_rejects_unbounded_or_nonpositive_values(value):
     with pytest.raises(ValidationError):
-        Settings(api_key="synthetic-service-key-" * 2, graph_storage_timeout_seconds=value)
+        Settings(**AUTH_SETTINGS, graph_storage_timeout_seconds=value)
 
 
 @pytest.mark.parametrize("value", [1, 30, 60])
 def test_storage_budget_is_independent_finite_and_serialized_for_worker(value):
-    settings = Settings(api_key="synthetic-service-key-" * 2, graph_storage_timeout_seconds=value)
+    settings = Settings(**AUTH_SETTINGS, graph_storage_timeout_seconds=value)
     assert settings.graph_storage_timeout_seconds == value
     assert settings.graph_query_timeout_seconds == 3
     assert settings.model_dump(mode="json")["graph_storage_timeout_seconds"] == value

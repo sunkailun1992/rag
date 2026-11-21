@@ -271,7 +271,8 @@ def test_real_module_worker_keeps_safe_main_frames_without_service_access():
     assert diagnostic["stage"] == "CONFIGURE"
     assert {frame["function"] for frame in diagnostic["frames"]} >= {"main", "build"}
     assert all(frame["file"] == "graph_worker.py" for frame in diagnostic["frames"])
-    assert b"api_key" not in result.stdout and b"settings" not in result.stdout
+    assert b"keycloak_issuer" not in result.stdout and b"jwks_url" not in result.stdout
+    assert b"settings" not in result.stdout
 
 
 @pytest.mark.parametrize(

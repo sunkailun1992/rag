@@ -19,8 +19,6 @@ public class RagEngineProperties {
     private int graphStatusTimeoutMillis = 3500;
     /** 服务端可信配置的 HTTP(S) 根地址，不能来自终端用户。 */
     private String baseUrl;
-    /** Java 门面与引擎之间的服务凭据，不是用户 JWT。 */
-    private String apiKey;
     /** 解析 HTTP 总超时，毫秒。 */
     private int parseTimeoutMillis = 60000;
     /** 检索 HTTP 总超时，最多 3500 毫秒，预留上游 5 秒预算。 */
