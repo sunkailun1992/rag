@@ -1,6 +1,7 @@
 package com.kellen.rag.support;
 
 import com.kellen.security.oauth2.FleetResourceServerAutoConfiguration;
+import com.kellen.security.oauth2.SecurityContextRpcService;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -14,6 +15,19 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 @TestConfiguration(proxyBeanMethods = false)
 @ImportAutoConfiguration(FleetResourceServerAutoConfiguration.class)
 public class ResourceServerTestConfiguration {
+
+    /**
+     * 业务上下文提供方占位：资源服务器要求有提供方（utils 2.0.8 起没有就启动失败）；控制器测试直接注入认证结果，
+     * 令牌一律被下面的解码器拒绝，走不到这里，走到就按 user 服务不可用（503）暴露出来。
+     *
+     * @return 提供方
+     */
+    @Bean
+    SecurityContextRpcService securityContextRpcService() {
+        return (userId, requestedTenantId) -> {
+            throw new IllegalStateException("控制器测试直接注入认证结果，不加载业务上下文");
+        };
+    }
 
     @Bean
     JwtDecoder rejectingJwtDecoder() {
