@@ -22,7 +22,7 @@ class FlywayMigrationLiveTest extends PostgresqlSchemaFixture {
 
     /** 每张表都必须有的全部基础字段；undo_log 与 Flyway 记录表是框架表，除外。以后新增业务表时由此把关。 */
     private static final List<String> BASE_COLUMNS = List.of("id", "code", "description", "create_time", "create_by",
-            "update_time", "update_by", "is_deleted", "label", "sorting", "version", "tenant_id", "create_dept");
+            "update_time", "update_by", "is_deleted", "label", "sort", "version", "tenant_id", "create_dept");
 
     @Test
     void everyTableHasAllBaseColumns() throws Exception {

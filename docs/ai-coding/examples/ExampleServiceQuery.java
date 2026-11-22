@@ -36,7 +36,7 @@ public class ExampleServiceQuery {
             Map.entry("state", "state"), // 允许按业务状态查询和排序。
             Map.entry("tenantId", "tenant_id"), // 允许按租户ID查询和排序。
             Map.entry("tenant_id", "tenant_id"), // 兼容前端传数据库列名。
-            Map.entry("sorting", "sorting"), // 允许按排序值查询和排序。
+            Map.entry("sort", "sort"), // 允许按排序值查询和排序。
             Map.entry("version", "version"), // 允许查询乐观锁版本号。
             Map.entry("createTime", "create_time"), // 允许按创建时间查询和排序。
             Map.entry("create_time", "create_time"), // 兼容前端传数据库列名。
