@@ -7,12 +7,16 @@ import com.kellen.rpc.rag.RagRetrievalRpcRequest;
 import com.kellen.rpc.rag.RagRetrievalRpcService;
 import com.kellen.traffic.CanaryContext;
 import org.apache.dubbo.config.annotation.DubboService;
+import org.apache.dubbo.config.annotation.Method;
 import org.apache.dubbo.rpc.RpcException;
 
 /**
  * RAG 知识检索 Dubbo RPC 服务实现。
+ *
+ * <p>{@code retrieve} 声明为幂等（{@code idempotent}）：它只向检索引擎查询，不写任何数据。utils 2.1.1 起的 Dubbo 调用端
+ * 统一重试据此在请求发出后的连接类失败时重试它。</p>
  */
-@DubboService
+@DubboService(methods = @Method(name = "retrieve", parameters = {"idempotent", "true"}))
 public class RagRetrievalRpcServiceImpl implements RagRetrievalRpcService {
 
     private final RagRetrievalService ragRetrievalService;
