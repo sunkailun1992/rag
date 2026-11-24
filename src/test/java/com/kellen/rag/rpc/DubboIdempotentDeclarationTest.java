@@ -27,15 +27,17 @@ class DubboIdempotentDeclarationTest {
         assertThat(contract).isAssignableFrom(implementation);
         DubboService service = implementation.getAnnotation(DubboService.class);
         assertThat(service).as("%s 应标 @DubboService", implementation.getSimpleName()).isNotNull();
+        assertThat(parameters(service.parameters()))
+                .as("%s 不能在服务级写 idempotent：那等于全部方法（包括以后新增的写方法）都声明幂等", implementation.getSimpleName())
+                .doesNotContainKey("idempotent");
         List<String> contractMethods = Arrays.stream(contract.getMethods()).map(java.lang.reflect.Method::getName).toList();
         assertThat(service.methods()).extracting(Method::name).allSatisfy(name -> assertThat(contractMethods).contains(name));
         List<Method> declared = Arrays.stream(service.methods()).filter(entry -> entry.name().equals(method)).toList();
         assertThat(declared).as("%s 的 %s 应恰好声明一次", implementation.getSimpleName(), method).hasSize(1);
-        assertThat(parameters(declared.get(0))).containsEntry("idempotent", "true");
+        assertThat(parameters(declared.get(0).parameters())).containsEntry("idempotent", "true");
     }
 
-    private static Map<String, String> parameters(Method method) {
-        String[] pairs = method.parameters();
+    private static Map<String, String> parameters(String[] pairs) {
         Map<String, String> parameters = new HashMap<>();
         for (int index = 0; index + 1 < pairs.length; index += 2) {
             parameters.put(pairs[index], pairs[index + 1]);

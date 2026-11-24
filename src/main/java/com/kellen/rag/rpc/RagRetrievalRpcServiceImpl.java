@@ -14,7 +14,8 @@ import org.apache.dubbo.rpc.RpcException;
  * RAG 知识检索 Dubbo RPC 服务实现。
  *
  * <p>{@code retrieve} 声明为幂等（{@code idempotent}）：它只向检索引擎查询，不写任何数据。utils 2.1.1 起的 Dubbo 调用端
- * 统一重试据此在请求发出后的连接类失败时重试它。</p>
+ * 统一重试据此在请求发出后的连接类失败时重试它。重试会再调一次检索引擎，引擎里的向量化与重排模型也随之再调一次，
+ * 只多产生模型调用费用（第二层最多再试 2 次）。</p>
  */
 @DubboService(methods = @Method(name = "retrieve", parameters = {"idempotent", "true"}))
 public class RagRetrievalRpcServiceImpl implements RagRetrievalRpcService {
